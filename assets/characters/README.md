@@ -97,4 +97,6 @@ loader.load(modelPath, (gltf) => {
 
 キック: `Kick_01_Front`, `Kick_02_Low`, `Kick_03_Mid`, `Kick_04_High`, `Kick_05_Roundhouse`, `Kick_06_Side`, `Kick_07_Back`, `Kick_08_Axe`, `Kick_09_Sweep`, `Kick_10_Thrust`, `Kick_11_Spin`, `Kick_12_Heel`, `Kick_13_Knee`, `Kick_14_JumpFront`, `Kick_15_JumpRound`, `Kick_16_Double`, `Kick_17_Flying`, `Kick_18_Heavy`, `Kick_19_Crescent`, `Kick_20_Burst`
 
+合計で44アニメーション（基本4種＋パンチ20種＋キック20種）です。
+
 各モーションには種類を示す `extras.category` と `extras.style` を付けています。例えば、Three.jsでは `gltf.animations.find((clip) => clip.name === 'Punch_04_Uppercut')` のように取得できます。
