@@ -1024,22 +1024,35 @@ def add_fighter_rig(builder: GLBBuilder, *, smooth: bool = False) -> None:
             raw_sides = spec["sides"]
             sides = (raw_sides,) if isinstance(raw_sides, str) else tuple(raw_sides)
             body_sign = -1.0 if len(sides) == 1 and sides[0] == "R" else 1.0
+            power = spec.get("power", 1.18)
+            body_scale = spec.get("body_scale", 1.0)
+            side_delay = spec.get("side_delay", 0.0)
             channels: list[tuple[str, str, list[float], list[tuple[float, ...]]]] = []
             axes = spec.get("axes", default_axes)
             values = (spec["first"], spec["second"], spec["third"])
 
-            for side in sides:
+            for side_index, side in enumerate(sides):
                 side_sign = -1.0 if side == "R" else 1.0
+                side_times = times
+                if side_index and side_delay:
+                    side_times = [time + side_delay * side_index for time in times]
                 for bone_base, axis, angles in zip(limb_bones, axes, values):
                     bone_name = f"{bone_base}.{side}"
-                    channels.append((bone_name, "rotation", times, q_series(axis, [side_sign * angle for angle in angles])))
+                    channels.append(
+                        (
+                            bone_name,
+                            "rotation",
+                            side_times,
+                            q_series(axis, [side_sign * power * angle for angle in angles]),
+                        )
+                    )
 
             channels.append(
                 (
                     "spine",
                     "rotation",
                     times,
-                    q_series(spec["spine_axis"], [body_sign * angle for angle in spec["spine"]]),
+                    q_series(spec["spine_axis"], [body_sign * body_scale * angle for angle in spec["spine"]]),
                 )
             )
             channels.append(
@@ -1047,23 +1060,48 @@ def add_fighter_rig(builder: GLBBuilder, *, smooth: bool = False) -> None:
                     "chest",
                     "rotation",
                     times,
-                    q_series(spec["chest_axis"], [body_sign * angle for angle in spec["chest"]]),
+                    q_series(spec["chest_axis"], [body_sign * body_scale * angle for angle in spec["chest"]]),
                 )
             )
 
+            pelvis = spec.get("pelvis")
+            if pelvis is not None:
+                channels.append(
+                    (
+                        "pelvis",
+                        "rotation",
+                        times,
+                        q_series((0.0, 0.0, 1.0), [body_sign * body_scale * angle for angle in pelvis]),
+                    )
+                )
+
+            root_turn = spec.get("root_turn", 0.0)
+            if root_turn:
+                turn_curve = [0.0, 0.72, 1.0, 1.0, 0.0] if frame_count == 5 else [0.0, 0.72, 1.0, 0.0]
+                channels.append(
+                    (
+                        "root",
+                        "rotation",
+                        times,
+                        q_series((0.0, 1.0, 0.0), [body_sign * root_turn * amount for amount in turn_curve]),
+                    )
+                )
+
             root_x = spec.get("root_x")
             root_y = spec.get("root_y")
-            if root_x is not None or root_y is not None:
+            root_z = spec.get("root_z")
+            if root_x is not None or root_y is not None or root_z is not None:
                 root_x = root_x if root_x is not None else [0.0] * frame_count
                 root_y = root_y if root_y is not None else [0.0] * frame_count
-                if len(root_x) != frame_count or len(root_y) != frame_count:
+                root_z = root_z if root_z is not None else [0.0] * frame_count
+                if len(root_x) != frame_count or len(root_y) != frame_count or len(root_z) != frame_count:
                     raise ValueError(f"{spec['name']}: root motion frame count differs")
                 channels.append(
                     (
                         "root",
                         "translation",
                         times,
-                        [(body_sign * x, y, 0.0) for x, y in zip(root_x, root_y)],
+                        [(body_sign * x, y, z) for x, y, z in zip(root_x, root_y, root_z)],
                     )
                 )
 
@@ -1073,6 +1111,12 @@ def add_fighter_rig(builder: GLBBuilder, *, smooth: bool = False) -> None:
                 extras={
                     "category": category,
                     "style": spec["style"],
+                    "motionFamily": "musou-inspired",
+                    "phaseModel": "windup-impact-hold-recovery",
+                    "powerLevel": spec.get("power_level", "standard"),
+                    "rootMotion": bool(root_x is not None or root_y is not None or root_z is not None),
+                    "comboDelaySeconds": side_delay,
+                    "hitHoldSeconds": spec.get("hit_hold", 0.0),
                     "sharedAcrossAnimalVariants": True,
                 },
             )
@@ -1094,8 +1138,8 @@ def add_fighter_rig(builder: GLBBuilder, *, smooth: bool = False) -> None:
         motion_spec("Punch_11_SpinBackfist", "spinning backfist", "L", [0.0, 0.22, 0.42, 0.86], [0.0, 0.38, 0.74, 0.0], [0.0, 0.10, 0.32, 0.0], [0.0, 0.28, 0.52, 0.0], [0.0, 0.25, 0.48, 0.0], [0.0, 0.22, 0.44, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
         motion_spec("Punch_12_DoubleJab", "double jab", ("L", "R"), [0.0, 0.10, 0.24, 0.50], [0.0, 0.20, 0.46, 0.0], [0.0, 0.28, 0.56, 0.0], [0.0, 0.04, 0.10, 0.0], [0.0, 0.0, 0.02, 0.0], [0.0, 0.0, 0.03, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))),
         motion_spec("Punch_13_CrossHook", "double cross hook", ("L", "R"), [0.0, 0.14, 0.30, 0.64], [0.0, 0.25, 0.56, 0.0], [0.0, 0.18, 0.48, 0.0], [0.0, 0.12, 0.30, 0.0], [0.0, 0.02, 0.08, 0.0], [0.0, 0.03, 0.10, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
-        motion_spec("Punch_14_HookCross", "hook cross", "R", [0.0, 0.16, 0.35, 0.70], [0.0, 0.30, 0.60, 0.0], [0.0, 0.10, 0.40, 0.0], [0.0, 0.16, 0.34, 0.0], [0.0, 0.06, 0.14, 0.0], [0.0, 0.08, 0.16, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
-        motion_spec("Punch_15_OneTwo", "one two combination", "L", [0.0, 0.12, 0.28, 0.58], [0.0, 0.15, 0.48, 0.0], [0.0, 0.30, 0.68, 0.0], [0.0, 0.06, 0.13, 0.0], [0.0, 0.08, 0.16, 0.0], [0.0, 0.10, 0.20, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_14_HookCross", "hook cross", ("L", "R"), [0.0, 0.16, 0.35, 0.70], [0.0, 0.30, 0.60, 0.0], [0.0, 0.10, 0.40, 0.0], [0.0, 0.16, 0.34, 0.0], [0.0, 0.06, 0.14, 0.0], [0.0, 0.08, 0.16, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_15_OneTwo", "one two combination", ("L", "R"), [0.0, 0.12, 0.28, 0.58], [0.0, 0.15, 0.48, 0.0], [0.0, 0.30, 0.68, 0.0], [0.0, 0.06, 0.13, 0.0], [0.0, 0.08, 0.16, 0.0], [0.0, 0.10, 0.20, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))),
         motion_spec("Punch_16_RisingHook", "rising hook", "R", [0.0, 0.16, 0.34, 0.64], [0.0, 0.18, 0.50, 0.0], [0.0, 0.28, 0.64, 0.0], [0.0, 0.14, 0.28, 0.0], [0.0, 0.12, 0.24, 0.0], [0.0, 0.14, 0.28, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))),
         motion_spec("Punch_17_LeapingPunch", "leaping punch", "L", [0.0, 0.16, 0.34, 0.72], [0.0, 0.28, 0.62, 0.0], [0.0, 0.36, 0.72, 0.0], [0.0, 0.08, 0.18, 0.0], [0.0, 0.06, 0.14, 0.0], [0.0, 0.08, 0.16, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)), root_y=[0.0, 0.08, 0.18, 0.0]),
         motion_spec("Punch_18_ChargePunch", "charged punch", "R", [0.0, 0.24, 0.44, 0.90], [0.0, 0.08, 0.56, 0.0], [0.0, 0.16, 0.68, 0.0], [0.0, 0.02, 0.12, 0.0], [0.0, 0.06, 0.16, 0.0], [0.0, 0.08, 0.18, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)), root_x=[0.0, 0.03, 0.08, 0.0]),
@@ -1125,6 +1169,80 @@ def add_fighter_rig(builder: GLBBuilder, *, smooth: bool = False) -> None:
         motion_spec("Kick_19_Crescent", "crescent kick", "L", [0.0, 0.20, 0.42, 0.84], [0.0, 0.42, 0.80, 0.0], [0.0, 0.24, 0.60, 0.0], [0.0, 0.34, 0.68, 0.0], [0.0, 0.22, 0.42, 0.0], [0.0, 0.24, 0.46, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
         motion_spec("Kick_20_Burst", "burst double kick", ("L", "R"), [0.0, 0.14, 0.30, 0.64], [0.0, 0.38, 0.78, 0.0], [0.0, 0.44, 0.86, 0.0], [0.0, 0.18, 0.36, 0.0], [0.0, 0.02, 0.10, 0.0], [0.0, 0.04, 0.12, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0)), root_y=[0.0, 0.08, 0.16, 0.0]),
     ]
+
+    # The game direction is intentionally "musou-inspired" rather than a
+    # one-to-one recreation of any named title: close the gap, sell the
+    # anticipation, hold the impact briefly, then return with a readable
+    # recovery.  The same profiles are applied to every animal head variant.
+    musou_profiles = {
+        "Punch_01_Jab": {"style": "musou_dash_jab", "power": 1.12, "body_scale": 1.08, "drive": 0.14, "hit_hold": 0.025, "power_level": "light"},
+        "Punch_02_Cross": {"style": "musou_gap_cross", "power": 1.28, "body_scale": 1.22, "drive": 0.25, "root_turn": 0.10, "hit_hold": 0.050, "power_level": "medium"},
+        "Punch_03_Hook": {"style": "musou_wide_hook", "power": 1.38, "body_scale": 1.30, "drive": 0.12, "root_turn": 0.24, "hit_hold": 0.055, "power_level": "medium"},
+        "Punch_04_Uppercut": {"style": "musou_launcher_uppercut", "power": 1.44, "body_scale": 1.34, "drive": 0.14, "lift": 0.12, "root_turn": -0.10, "hit_hold": 0.070, "power_level": "launcher"},
+        "Punch_05_Overhand": {"style": "musou_drop_overhand", "power": 1.48, "body_scale": 1.42, "drive": 0.18, "lift": -0.04, "root_turn": 0.10, "hit_hold": 0.075, "power_level": "heavy"},
+        "Punch_06_Backfist": {"style": "musou_turning_backfist", "power": 1.42, "body_scale": 1.34, "drive": 0.08, "root_turn": 0.52, "hit_hold": 0.060, "power_level": "medium"},
+        "Punch_07_LongJab": {"style": "musou_gap_closing_jab", "power": 1.22, "body_scale": 1.12, "drive": 0.30, "hit_hold": 0.035, "power_level": "medium"},
+        "Punch_08_BodyHook": {"style": "musou_body_sweep", "power": 1.44, "body_scale": 1.38, "drive": 0.14, "root_turn": 0.20, "hit_hold": 0.060, "power_level": "heavy"},
+        "Punch_09_StraightBody": {"style": "musou_body_breaker", "power": 1.32, "body_scale": 1.28, "drive": 0.22, "hit_hold": 0.055, "power_level": "medium"},
+        "Punch_10_Elbow": {"style": "musou_close_elbow_burst", "power": 1.52, "body_scale": 1.40, "drive": 0.10, "root_turn": 0.28, "hit_hold": 0.070, "power_level": "heavy"},
+        "Punch_11_SpinBackfist": {"style": "musou_spin_backfist", "power": 1.56, "body_scale": 1.48, "drive": 0.10, "root_turn": 0.78, "hit_hold": 0.075, "power_level": "heavy"},
+        "Punch_12_DoubleJab": {"style": "musou_double_hit_chain", "power": 1.18, "body_scale": 1.12, "drive": 0.20, "side_delay": 0.105, "hit_hold": 0.030, "power_level": "chain"},
+        "Punch_13_CrossHook": {"style": "musou_cross_hook_chain", "power": 1.42, "body_scale": 1.32, "drive": 0.22, "root_turn": 0.30, "side_delay": 0.125, "hit_hold": 0.050, "power_level": "chain"},
+        "Punch_14_HookCross": {"style": "musou_hook_cross_chain", "power": 1.46, "body_scale": 1.36, "drive": 0.26, "root_turn": 0.34, "side_delay": 0.130, "hit_hold": 0.055, "power_level": "chain"},
+        "Punch_15_OneTwo": {"style": "musou_one_two_chain", "power": 1.36, "body_scale": 1.26, "drive": 0.24, "side_delay": 0.115, "hit_hold": 0.045, "power_level": "chain"},
+        "Punch_16_RisingHook": {"style": "musou_rising_launcher", "power": 1.46, "body_scale": 1.38, "drive": 0.12, "lift": 0.10, "root_turn": -0.12, "hit_hold": 0.070, "power_level": "launcher"},
+        "Punch_17_LeapingPunch": {"style": "musou_air_pursuit", "power": 1.36, "body_scale": 1.18, "drive": 0.34, "lift": 0.22, "hit_hold": 0.055, "power_level": "air"},
+        "Punch_18_ChargePunch": {"style": "musou_charge_breaker", "power": 1.72, "body_scale": 1.58, "drive": 0.20, "root_turn": 0.14, "hit_hold": 0.100, "power_level": "heavy"},
+        "Punch_19_BurstPunch": {"style": "musou_burst_chain", "power": 1.46, "body_scale": 1.30, "drive": 0.32, "side_delay": 0.105, "hit_hold": 0.045, "power_level": "chain"},
+        "Punch_20_HeavySmash": {"style": "musou_finisher_smash", "power": 1.88, "body_scale": 1.72, "drive": 0.16, "lift": -0.10, "root_turn": 0.18, "hit_hold": 0.115, "power_level": "finisher"},
+        "Kick_01_Front": {"style": "musou_dash_front_kick", "power": 1.24, "body_scale": 1.12, "drive": 0.18, "hit_hold": 0.040, "power_level": "medium"},
+        "Kick_02_Low": {"style": "musou_low_breaker", "power": 1.28, "body_scale": 1.18, "drive": 0.14, "root_turn": 0.12, "hit_hold": 0.045, "power_level": "medium"},
+        "Kick_03_Mid": {"style": "musou_mid_drive_kick", "power": 1.34, "body_scale": 1.24, "drive": 0.22, "hit_hold": 0.055, "power_level": "medium"},
+        "Kick_04_High": {"style": "musou_high_rising_kick", "power": 1.42, "body_scale": 1.30, "drive": 0.16, "lift": 0.05, "hit_hold": 0.065, "power_level": "launcher"},
+        "Kick_05_Roundhouse": {"style": "musou_wide_roundhouse", "power": 1.52, "body_scale": 1.40, "drive": 0.12, "root_turn": 0.50, "hit_hold": 0.070, "power_level": "heavy"},
+        "Kick_06_Side": {"style": "musou_side_wall_kick", "power": 1.48, "body_scale": 1.38, "drive": 0.20, "root_turn": 0.32, "hit_hold": 0.065, "power_level": "heavy"},
+        "Kick_07_Back": {"style": "musou_back_kick", "power": 1.54, "body_scale": 1.42, "drive": 0.08, "root_turn": 0.56, "hit_hold": 0.075, "power_level": "heavy"},
+        "Kick_08_Axe": {"style": "musou_axe_launcher", "power": 1.52, "body_scale": 1.44, "drive": 0.14, "lift": 0.10, "hit_hold": 0.075, "power_level": "launcher"},
+        "Kick_09_Sweep": {"style": "musou_area_sweep", "power": 1.48, "body_scale": 1.42, "drive": 0.12, "root_turn": 0.44, "hit_hold": 0.065, "power_level": "area"},
+        "Kick_10_Thrust": {"style": "musou_thrust_breaker", "power": 1.40, "body_scale": 1.28, "drive": 0.26, "hit_hold": 0.055, "power_level": "medium"},
+        "Kick_11_Spin": {"style": "musou_spin_kick", "power": 1.64, "body_scale": 1.54, "drive": 0.14, "root_turn": 0.86, "hit_hold": 0.080, "power_level": "heavy"},
+        "Kick_12_Heel": {"style": "musou_heel_smash", "power": 1.56, "body_scale": 1.48, "drive": 0.12, "lift": 0.06, "hit_hold": 0.080, "power_level": "heavy"},
+        "Kick_13_Knee": {"style": "musou_knee_burst", "power": 1.42, "body_scale": 1.30, "drive": 0.20, "lift": 0.04, "hit_hold": 0.060, "power_level": "medium"},
+        "Kick_14_JumpFront": {"style": "musou_air_front_kick", "power": 1.44, "body_scale": 1.18, "drive": 0.36, "lift": 0.30, "hit_hold": 0.060, "power_level": "air"},
+        "Kick_15_JumpRound": {"style": "musou_air_roundhouse", "power": 1.66, "body_scale": 1.42, "drive": 0.28, "lift": 0.32, "root_turn": 0.58, "hit_hold": 0.080, "power_level": "air"},
+        "Kick_16_Double": {"style": "musou_double_kick_chain", "power": 1.46, "body_scale": 1.26, "drive": 0.34, "lift": 0.18, "side_delay": 0.120, "hit_hold": 0.050, "power_level": "chain"},
+        "Kick_17_Flying": {"style": "musou_flying_pursuit", "power": 1.62, "body_scale": 1.36, "drive": 0.42, "lift": 0.38, "root_turn": 0.24, "hit_hold": 0.070, "power_level": "air"},
+        "Kick_18_Heavy": {"style": "musou_finisher_kick", "power": 1.86, "body_scale": 1.66, "drive": 0.18, "lift": -0.10, "root_turn": 0.22, "hit_hold": 0.115, "power_level": "finisher"},
+        "Kick_19_Crescent": {"style": "musou_crescent_area", "power": 1.68, "body_scale": 1.50, "drive": 0.16, "root_turn": 0.68, "hit_hold": 0.080, "power_level": "area"},
+        "Kick_20_Burst": {"style": "musou_burst_kick_chain", "power": 1.58, "body_scale": 1.30, "drive": 0.38, "lift": 0.22, "side_delay": 0.120, "hit_hold": 0.060, "power_level": "finisher"},
+    }
+
+    def prepare_musou_specs(specs: list[dict]) -> None:
+        for spec in specs:
+            profile = musou_profiles.get(spec["name"])
+            if profile is None:
+                continue
+            spec.update(profile)
+            drive = spec.get("drive", 0.0)
+            lift = spec.get("lift", 0.0)
+            spec["root_z"] = [0.0, drive * 0.42, drive, 0.0]
+            original_root_y = spec.get("root_y") or [0.0] * len(spec["times"])
+            lift_curve = [0.0, lift * 0.44, lift, 0.0]
+            spec["root_y"] = [base + offset for base, offset in zip(original_root_y, lift_curve)]
+            spec["pelvis"] = [0.0, -0.10, 0.07, 0.0]
+
+            hold = spec.get("hit_hold", 0.0)
+            if hold <= 0.0 or len(spec["times"]) != 4:
+                continue
+            times = spec["times"]
+            spec["times"] = times[:3] + [times[2] + hold, times[3] + hold]
+            for key in ("first", "second", "third", "spine", "chest", "root_x", "root_y", "root_z", "pelvis"):
+                values = spec.get(key)
+                if values is not None:
+                    spec[key] = values[:3] + [values[2], values[3]]
+
+    prepare_musou_specs(punch_specs)
+    prepare_musou_specs(kick_specs)
 
     add_motion_set("punch", punch_specs)
     add_motion_set("kick", kick_specs)

@@ -17,7 +17,7 @@
 
 スムース版です。関節付近の頂点を最大4本の骨で補間しています。腕を伸ばす、脚を蹴り出す、胴体をひねるといった格闘ゲームの動きに向いています。
 
-両方とも同じ19本の骨格と4種類のアニメーションを持ちます。ゲーム側で読み込むファイルを切り替えてください。
+両方とも同じ19本の骨格と44種類のアニメーションを持ちます。関節の見た目を優先するときは`-smooth`版、軽量さを優先するときは通常版を選んでください。
 
 ## モデル仕様
 
@@ -29,7 +29,7 @@
 - 心臓、ガチョウ部分、翼、腕、脚を個別に取得可能
 - 19本の人型骨格を設定
 - 全パーツをスキニング済み
-- `Idle`、`Guard`、`Punch_R`、`Kick_L` の4アニメーションを収録
+- `Idle`、`Guard`、`Punch_R`、`Kick_L`、パンチ20種、キック20種の合計44アニメーションを収録
 
 このモデルは、採用画像を基にした格闘ゲーム用3Dモデルです。画像から完全に同じ高精細メッシュを復元したものではありません。スムース版も、ブラウザで扱いやすい軽量さを優先した構成です。
 
@@ -87,11 +87,13 @@ loader.load(modelPath, (gltf) => {
 | クマ | `bear-heart-champion.glb` | `bear-heart-champion-smooth.glb` |
 | カバ | `hippopotamus-heart-champion.glb` | `hippopotamus-heart-champion-smooth.glb` |
 
-各ファイルはガチョウ版と同じ19本の骨格、`Idle`・`Guard`・`Punch_R`・`Kick_L`の4アニメーションを持ちます。通常版は軽量なパーツ単位の割り当て、`-smooth`版は関節周辺を最大4本の骨で補間する構成です。
+各ファイルはガチョウ版と同じ19本の骨格、44アニメーションを持ちます。通常版は軽量なパーツ単位の割り当て、`-smooth`版は関節周辺を最大4本の骨で補間する構成です。
 
 ## 共通格闘モーション
 
-動物ごとに分けず、全GLBへ同じ格闘モーションを収録しています。既存の基本攻撃に加えて、パンチ20種類とキック20種類を追加しました。
+動物ごとに分けず、全GLBへ同じ格闘モーションを収録しています。家庭用の無双系3D格闘ゲームを想定し、特定作品のモーションをそのまま複製せず、踏み込み・大きな溜め・広い振り抜き・打ち上げ・空中追撃・締め技という共通の演出文法で、パンチ20種類とキック20種類を作成しています。
+
+各攻撃は概ね「windup（溜め）→ impact（ヒット）→ hold（短いヒットストップ）→ recovery（戻り）」の4段階です。前進するルートモーション、回転技のルート回転、連打系の左右の時間差も含めています。頭部バリエーションを差し替えても同じアニメーション名で動かせます。
 
 パンチ: `Punch_01_Jab`, `Punch_02_Cross`, `Punch_03_Hook`, `Punch_04_Uppercut`, `Punch_05_Overhand`, `Punch_06_Backfist`, `Punch_07_LongJab`, `Punch_08_BodyHook`, `Punch_09_StraightBody`, `Punch_10_Elbow`, `Punch_11_SpinBackfist`, `Punch_12_DoubleJab`, `Punch_13_CrossHook`, `Punch_14_HookCross`, `Punch_15_OneTwo`, `Punch_16_RisingHook`, `Punch_17_LeapingPunch`, `Punch_18_ChargePunch`, `Punch_19_BurstPunch`, `Punch_20_HeavySmash`
 
@@ -99,4 +101,4 @@ loader.load(modelPath, (gltf) => {
 
 合計で44アニメーション（基本4種＋パンチ20種＋キック20種）です。
 
-各モーションには種類を示す `extras.category` と `extras.style` を付けています。例えば、Three.jsでは `gltf.animations.find((clip) => clip.name === 'Punch_04_Uppercut')` のように取得できます。
+各モーションには `extras.category`、`extras.style`、`extras.motionFamily`、`extras.phaseModel`、`extras.powerLevel` を付けています。`extras.motionFamily` は `musou-inspired` です。例えば、Three.jsでは `gltf.animations.find((clip) => clip.name === 'Punch_04_Uppercut')` のように取得できます。
