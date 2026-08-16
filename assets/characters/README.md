@@ -5,6 +5,19 @@
 ## ファイル
 
 - `goose-heart-champion.glb`
+- `goose-heart-champion-smooth.glb`
+
+## 使い分け
+
+### `goose-heart-champion.glb`
+
+軽量版です。各パーツを主に1本の骨へ割り当てています。パーツを独立して動かしやすく、簡単な表示や処理負荷を抑えたい場面に向いています。
+
+### `goose-heart-champion-smooth.glb`
+
+スムース版です。関節付近の頂点を最大4本の骨で補間しています。腕を伸ばす、脚を蹴り出す、胴体をひねるといった格闘ゲームの動きに向いています。
+
+両方とも同じ19本の骨格と4種類のアニメーションを持ちます。ゲーム側で読み込むファイルを切り替えてください。
 
 ## モデル仕様
 
@@ -18,7 +31,7 @@
 - 全パーツをスキニング済み
 - `Idle`、`Guard`、`Punch_R`、`Kick_L` の4アニメーションを収録
 
-このモデルは、採用画像を基にした軽量な格闘ゲーム用3Dモデルです。画像から完全に同じ高精細メッシュを復元したものではありません。現在のスキニングは、パーツごとに1本の骨を割り当てる方式です。関節を滑らかに変形させる処理は、今後必要に応じて追加できます。
+このモデルは、採用画像を基にした格闘ゲーム用3Dモデルです。画像から完全に同じ高精細メッシュを復元したものではありません。スムース版も、ブラウザで扱いやすい軽量さを優先した構成です。
 
 ## Three.jsでの読み込み例
 
@@ -28,7 +41,9 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const loader = new GLTFLoader();
 
-loader.load('assets/characters/goose-heart-champion.glb', (gltf) => {
+const modelPath = 'assets/characters/goose-heart-champion-smooth.glb';
+
+loader.load(modelPath, (gltf) => {
   const character = gltf.scene;
   character.scale.setScalar(1.0);
   scene.add(character);
