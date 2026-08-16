@@ -14,9 +14,11 @@
 - 外部テクスチャなし
 - 64個の独立したパーツで構成
 - 心臓、ガチョウ部分、翼、腕、脚を個別に取得可能
-- スキニング用の骨格は未設定。まずは静的表示・回転・パーツ単位の動きに対応
+- 19本の人型骨格を設定
+- 全パーツをスキニング済み
+- `Idle`、`Guard`、`Punch_R`、`Kick_L` の4アニメーションを収録
 
-このモデルは、採用画像を基にした軽量なゲーム用3Dモデルです。画像から完全に同じ高精細メッシュを復元したものではありません。
+このモデルは、採用画像を基にした軽量な格闘ゲーム用3Dモデルです。画像から完全に同じ高精細メッシュを復元したものではありません。現在のスキニングは、パーツごとに1本の骨を割り当てる方式です。関節を滑らかに変形させる処理は、今後必要に応じて追加できます。
 
 ## Three.jsでの読み込み例
 
@@ -31,12 +33,28 @@ loader.load('assets/characters/goose-heart-champion.glb', (gltf) => {
   character.scale.setScalar(1.0);
   scene.add(character);
 
-  // 例: パーツを名前で取得して個別に動かす
-  const wing = character.getObjectByName('Wing_Feather_8');
-  if (wing) wing.rotation.z = 0.05;
+  // GLB内のアニメーションを再生する
+  const mixer = new THREE.AnimationMixer(character);
+  const idle = gltf.animations.find((clip) => clip.name === 'Idle');
+  if (idle) mixer.clipAction(idle).play();
+
+  // 格闘アクションへ切り替える例
+  function playAction(name) {
+    const clip = gltf.animations.find((item) => item.name === name);
+    if (!clip) return;
+    mixer.stopAllAction();
+    mixer.clipAction(clip).reset().play();
+  }
+
+  // 例: playAction('Punch_R');
+
+  // 毎フレーム呼び出す
+  function update(deltaSeconds) {
+    mixer.update(deltaSeconds);
+  }
 });
 ```
 
 ## 生成元
 
-`tools/build_goose_heart_glb.py` は、外部ライブラリなしでGLBを再生成するためのスクリプトです。
+`tools/build_goose_heart_glb.py` は、外部ライブラリなしで、骨格・スキニング・基本アニメーションを含むGLBを再生成するためのスクリプトです。
