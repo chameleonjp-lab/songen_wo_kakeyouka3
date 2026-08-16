@@ -71,6 +71,9 @@ class GLBBuilder:
         self.meshes: list[dict] = []
         self.nodes: list[dict] = []
         self.materials: list[dict] = []
+        self.skins: list[dict] = []
+        self.animations: list[dict] = []
+        self.scene_nodes: list[int] | None = None
         self.material_lookup: dict[str, int] = {}
 
     def material(
@@ -416,7 +419,12 @@ class GLBBuilder:
                 },
             },
             "scene": 0,
-            "scenes": [{"name": "GooseHeartChampion", "nodes": list(range(len(self.nodes)))}],
+            "scenes": [
+                {
+                    "name": "GooseHeartChampion",
+                    "nodes": self.scene_nodes if self.scene_nodes is not None else list(range(len(self.nodes))),
+                }
+            ],
             "nodes": self.nodes,
             "meshes": self.meshes,
             "materials": self.materials,
@@ -424,6 +432,10 @@ class GLBBuilder:
             "bufferViews": self.buffer_views,
             "buffers": [{"byteLength": len(self.binary)}],
         }
+        if self.skins:
+            gltf["skins"] = self.skins
+        if self.animations:
+            gltf["animations"] = self.animations
         json_bytes = json.dumps(gltf, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         while len(json_bytes) % 4:
             json_bytes += b" "
@@ -439,6 +451,239 @@ class GLBBuilder:
         output.extend(binary)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(output)
+
+
+def quaternion_axis(axis: Vec3, angle: float) -> tuple[float, float, float, float]:
+    half = angle * 0.5
+    sine = math.sin(half)
+    cosine = math.cos(half)
+    direction = normalize(axis)
+    return (direction[0] * sine, direction[1] * sine, direction[2] * sine, cosine)
+
+
+def translation_matrix(position: Vec3) -> list[float]:
+    # glTF matrices are stored column-major.
+    return [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        position[0],
+        position[1],
+        position[2],
+        1.0,
+    ]
+
+
+def inverse_translation_matrix(position: Vec3) -> list[float]:
+    return translation_matrix((-position[0], -position[1], -position[2]))
+
+
+def add_animation_accessor(
+    builder: GLBBuilder,
+    values: list[float],
+    count: int,
+    accessor_type: str,
+) -> int:
+    data = b"".join(struct.pack("<f", value) for value in values)
+    offset, size = builder._append_bytes(data)
+    view = builder._view(offset, size)
+    return builder._accessor(view, 5126, count, accessor_type)
+
+
+def mesh_bone_name(mesh_name: str) -> str:
+    lower = mesh_name.lower()
+    if lower.startswith("wing_"):
+        return "wing.R"
+    if "goosemask" in lower:
+        if "throat" in lower:
+            return "neck"
+        if "clavicle" in lower:
+            return "chest"
+        return "head"
+    if "heart" in lower or "chest" in lower or "pectoral" in lower:
+        return "chest"
+    if "torso" in lower or "abdomen" in lower:
+        return "spine"
+    if "pelvis" in lower or "hip" in lower:
+        return "pelvis"
+
+    side = "L" if "left" in lower else "R" if "right" in lower else ""
+    if "foot" in lower:
+        return f"foot.{side}"
+    if "calf" in lower or "knee" in lower:
+        return f"shin.{side}"
+    if "thigh" in lower:
+        return f"thigh.{side}"
+    if "fist" in lower or "knuckle" in lower:
+        return f"hand.{side}"
+    if "forearm" in lower or "elbow" in lower:
+        return f"forearm.{side}"
+    if "bicep" in lower or "shoulder" in lower:
+        return f"upper_arm.{side}"
+    if "abdominal" in lower:
+        return "spine"
+    return "chest"
+
+
+def add_fighter_rig(builder: GLBBuilder) -> None:
+    """Add a rigidly skinned humanoid rig and starter fighting animations.
+
+    Each existing part is rigidly weighted to one joint.  This is deliberate:
+    it keeps the low-poly character stable while allowing the browser game to
+    animate the model immediately.  A later pass can replace selected parts
+    with smoothly weighted meshes if needed.
+    """
+
+    mesh_node_count = len(builder.nodes)
+    bone_specs: list[tuple[str, str | None, Vec3]] = [
+        ("root", None, (0.0, 0.0, 0.0)),
+        ("pelvis", "root", (0.0, 0.98, 0.0)),
+        ("spine", "pelvis", (0.0, 0.55, 0.0)),
+        ("chest", "spine", (0.0, 0.50, 0.0)),
+        ("neck", "chest", (-0.12, 0.27, 0.04)),
+        ("head", "neck", (-0.03, 0.58, 0.06)),
+        ("upper_arm.L", "chest", (-0.68, -0.06, 0.0)),
+        ("forearm.L", "upper_arm.L", (-0.47, 0.21, 0.03)),
+        ("hand.L", "forearm.L", (-0.07, 0.24, 0.01)),
+        ("upper_arm.R", "chest", (0.68, -0.06, 0.0)),
+        ("forearm.R", "upper_arm.R", (0.47, 0.21, 0.03)),
+        ("hand.R", "forearm.R", (0.07, 0.24, 0.01)),
+        ("thigh.L", "pelvis", (-0.33, 0.02, 0.0)),
+        ("shin.L", "thigh.L", (-0.05, -0.50, 0.02)),
+        ("foot.L", "shin.L", (0.0, -0.34, 0.02)),
+        ("thigh.R", "pelvis", (0.33, 0.02, 0.0)),
+        ("shin.R", "thigh.R", (0.05, -0.50, 0.02)),
+        ("foot.R", "shin.R", (0.0, -0.34, 0.02)),
+        ("wing.R", "chest", (0.45, 0.25, -0.22)),
+    ]
+    bone_indices: dict[str, int] = {}
+    local_positions: dict[str, Vec3] = {}
+    parents: dict[str, str | None] = {}
+    for name, parent, local in bone_specs:
+        bone_indices[name] = len(builder.nodes)
+        local_positions[name] = local
+        parents[name] = parent
+        builder.nodes.append({"name": name, "translation": list(local)})
+
+    for name, parent, _ in bone_specs:
+        if parent is not None:
+            builder.nodes[bone_indices[parent]].setdefault("children", []).append(bone_indices[name])
+
+    world_positions: dict[str, Vec3] = {}
+    for name, parent, local in bone_specs:
+        world_positions[name] = local if parent is None else add(world_positions[parent], local)
+
+    joints = [bone_indices[name] for name, _, _ in bone_specs]
+    inverse_bind_data: list[float] = []
+    for name, _, _ in bone_specs:
+        inverse_bind_data.extend(inverse_translation_matrix(world_positions[name]))
+    inverse_bind_accessor = add_animation_accessor(builder, inverse_bind_data, len(joints), "MAT4")
+    skin_index = len(builder.skins)
+    builder.skins.append(
+        {
+            "name": "GooseHeartFighterRig",
+            "joints": joints,
+            "inverseBindMatrices": inverse_bind_accessor,
+            "skeleton": bone_indices["root"],
+        }
+    )
+
+    # Bind every existing mesh node to one joint with a rigid weight of 1.0.
+    bone_order = {name: index for index, (name, _, _) in enumerate(bone_specs)}
+    for node_index in range(mesh_node_count):
+        node = builder.nodes[node_index]
+        node["skin"] = skin_index
+        bone_name = mesh_bone_name(node["name"])
+        if bone_name not in bone_order:
+            bone_name = "chest"
+        joint_index = bone_order[bone_name]
+        primitive = builder.meshes[node["mesh"]]["primitives"][0]
+        vertex_count = builder.accessors[primitive["attributes"]["POSITION"]]["count"]
+        joint_values: list[int] = []
+        weight_values: list[float] = []
+        for _ in range(vertex_count):
+            joint_values.extend((joint_index, 0, 0, 0))
+            weight_values.extend((1.0, 0.0, 0.0, 0.0))
+        joint_bytes = b"".join(struct.pack("<4H", *joint_values[i : i + 4]) for i in range(0, len(joint_values), 4))
+        weight_bytes = b"".join(struct.pack("<4f", *weight_values[i : i + 4]) for i in range(0, len(weight_values), 4))
+        joint_offset, joint_size = builder._append_bytes(joint_bytes)
+        weight_offset, weight_size = builder._append_bytes(weight_bytes)
+        joint_view = builder._view(joint_offset, joint_size, 34962)
+        weight_view = builder._view(weight_offset, weight_size, 34962)
+        joint_accessor = builder._accessor(joint_view, 5123, vertex_count, "VEC4")
+        weight_accessor = builder._accessor(weight_view, 5126, vertex_count, "VEC4")
+        primitive["attributes"]["JOINTS_0"] = joint_accessor
+        primitive["attributes"]["WEIGHTS_0"] = weight_accessor
+
+    def add_clip(name: str, clips: list[tuple[str, str, list[float], list[tuple[float, ...]]]]) -> None:
+        samplers = []
+        channels = []
+        for bone_name, path, times, values in clips:
+            input_accessor = add_animation_accessor(builder, times, len(times), "SCALAR")
+            width = 3 if path == "translation" else 4
+            output_accessor = add_animation_accessor(builder, [value for frame in values for value in frame], len(values), "VEC3" if width == 3 else "VEC4")
+            sampler_index = len(samplers)
+            samplers.append({"input": input_accessor, "output": output_accessor, "interpolation": "LINEAR"})
+            channels.append(
+                {
+                    "sampler": sampler_index,
+                    "target": {"node": bone_indices[bone_name], "path": path},
+                }
+            )
+        builder.animations.append({"name": name, "samplers": samplers, "channels": channels})
+
+    idle_times = [0.0, 0.8, 1.6]
+    add_clip(
+        "Idle",
+        [
+            ("root", "translation", idle_times, [(0.0, 0.0, 0.0), (0.0, 0.025, 0.0), (0.0, 0.0, 0.0)]),
+            ("spine", "rotation", idle_times, [quaternion_axis((0.0, 0.0, 1.0), 0.0), quaternion_axis((0.0, 0.0, 1.0), 0.035), quaternion_axis((0.0, 0.0, 1.0), 0.0)]),
+            ("chest", "rotation", idle_times, [quaternion_axis((0.0, 1.0, 0.0), -0.02), quaternion_axis((0.0, 1.0, 0.0), 0.02), quaternion_axis((0.0, 1.0, 0.0), -0.02)]),
+            ("wing.R", "rotation", idle_times, [quaternion_axis((0.0, 0.0, 1.0), 0.0), quaternion_axis((0.0, 0.0, 1.0), 0.025), quaternion_axis((0.0, 0.0, 1.0), 0.0)]),
+        ],
+    )
+
+    guard_times = [0.0, 0.18, 0.36]
+    add_clip(
+        "Guard",
+        [
+            ("upper_arm.L", "rotation", guard_times, [quaternion_axis((0.0, 0.0, 1.0), 0.0), quaternion_axis((0.0, 0.0, 1.0), -0.15), quaternion_axis((0.0, 0.0, 1.0), 0.0)]),
+            ("upper_arm.R", "rotation", guard_times, [quaternion_axis((0.0, 0.0, 1.0), 0.0), quaternion_axis((0.0, 0.0, 1.0), 0.15), quaternion_axis((0.0, 0.0, 1.0), 0.0)]),
+            ("forearm.L", "rotation", guard_times, [quaternion_axis((0.0, 1.0, 0.0), 0.0), quaternion_axis((0.0, 1.0, 0.0), -0.18), quaternion_axis((0.0, 1.0, 0.0), 0.0)]),
+            ("forearm.R", "rotation", guard_times, [quaternion_axis((0.0, 1.0, 0.0), 0.0), quaternion_axis((0.0, 1.0, 0.0), 0.18), quaternion_axis((0.0, 1.0, 0.0), 0.0)]),
+        ],
+    )
+
+    punch_times = [0.0, 0.14, 0.28, 0.72]
+    add_clip(
+        "Punch_R",
+        [
+            ("upper_arm.R", "rotation", punch_times, [quaternion_axis((0.0, 0.0, 1.0), 0.0), quaternion_axis((0.0, 0.0, 1.0), -0.35), quaternion_axis((0.0, 0.0, 1.0), -0.08), quaternion_axis((0.0, 0.0, 1.0), 0.0)]),
+            ("forearm.R", "rotation", punch_times, [quaternion_axis((0.0, 0.0, 1.0), 0.0), quaternion_axis((0.0, 0.0, 1.0), -0.45), quaternion_axis((0.0, 0.0, 1.0), -0.72), quaternion_axis((0.0, 0.0, 1.0), 0.0)]),
+            ("hand.R", "rotation", punch_times, [quaternion_axis((0.0, 1.0, 0.0), 0.0), quaternion_axis((0.0, 1.0, 0.0), 0.12), quaternion_axis((0.0, 1.0, 0.0), 0.20), quaternion_axis((0.0, 1.0, 0.0), 0.0)]),
+        ],
+    )
+
+    kick_times = [0.0, 0.16, 0.34, 0.82]
+    add_clip(
+        "Kick_L",
+        [
+            ("thigh.L", "rotation", kick_times, [quaternion_axis((0.0, 0.0, 1.0), 0.0), quaternion_axis((0.0, 0.0, 1.0), -0.24), quaternion_axis((0.0, 0.0, 1.0), 0.10), quaternion_axis((0.0, 0.0, 1.0), 0.0)]),
+            ("shin.L", "rotation", kick_times, [quaternion_axis((0.0, 0.0, 1.0), 0.0), quaternion_axis((0.0, 0.0, 1.0), 0.30), quaternion_axis((0.0, 0.0, 1.0), 0.62), quaternion_axis((0.0, 0.0, 1.0), 0.0)]),
+            ("foot.L", "rotation", kick_times, [quaternion_axis((1.0, 0.0, 0.0), 0.0), quaternion_axis((1.0, 0.0, 0.0), -0.12), quaternion_axis((1.0, 0.0, 0.0), -0.22), quaternion_axis((1.0, 0.0, 0.0), 0.0)]),
+        ],
+    )
+
+    builder.scene_nodes = list(range(mesh_node_count)) + [bone_indices["root"]]
 
 
 def build_model() -> GLBBuilder:
@@ -544,8 +789,13 @@ def build_model() -> GLBBuilder:
 def main() -> None:
     output = Path(__file__).with_name("assets") / "characters" / "goose-heart-champion.glb"
     builder = build_model()
+    add_fighter_rig(builder)
     builder.save(output)
-    print(f"wrote {output} ({output.stat().st_size} bytes, {len(builder.nodes)} nodes)")
+    print(
+        f"wrote {output} ({output.stat().st_size} bytes, "
+        f"{len(builder.nodes)} nodes, {len(builder.skins)} skin, "
+        f"{len(builder.animations)} animations)"
+    )
 
 
 if __name__ == "__main__":
