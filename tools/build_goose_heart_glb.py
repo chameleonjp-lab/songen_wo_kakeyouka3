@@ -906,7 +906,12 @@ def add_fighter_rig(builder: GLBBuilder, *, smooth: bool = False) -> None:
         primitive["attributes"]["JOINTS_0"] = joint_accessor
         primitive["attributes"]["WEIGHTS_0"] = weight_accessor
 
-    def add_clip(name: str, clips: list[tuple[str, str, list[float], list[tuple[float, ...]]]]) -> None:
+    def add_clip(
+        name: str,
+        clips: list[tuple[str, str, list[float], list[tuple[float, ...]]]],
+        *,
+        extras: dict | None = None,
+    ) -> None:
         samplers = []
         channels = []
         for bone_name, path, times, values in clips:
@@ -921,7 +926,10 @@ def add_fighter_rig(builder: GLBBuilder, *, smooth: bool = False) -> None:
                     "target": {"node": bone_indices[bone_name], "path": path},
                 }
             )
-        builder.animations.append({"name": name, "samplers": samplers, "channels": channels})
+        animation = {"name": name, "samplers": samplers, "channels": channels}
+        if extras:
+            animation["extras"] = extras
+        builder.animations.append(animation)
 
     idle_times = [0.0, 0.8, 1.6]
     add_clip(
@@ -964,6 +972,162 @@ def add_fighter_rig(builder: GLBBuilder, *, smooth: bool = False) -> None:
             ("foot.L", "rotation", kick_times, [quaternion_axis((1.0, 0.0, 0.0), 0.0), quaternion_axis((1.0, 0.0, 0.0), -0.12), quaternion_axis((1.0, 0.0, 0.0), -0.22), quaternion_axis((1.0, 0.0, 0.0), 0.0)]),
         ],
     )
+
+    def motion_spec(
+        name: str,
+        style: str,
+        sides: str | tuple[str, ...],
+        times: list[float],
+        first: list[float],
+        second: list[float],
+        third: list[float],
+        spine: list[float],
+        chest: list[float],
+        *,
+        axes: tuple[Vec3, Vec3, Vec3],
+        spine_axis: Vec3 = (0.0, 1.0, 0.0),
+        chest_axis: Vec3 = (0.0, 1.0, 0.0),
+        root_x: list[float] | None = None,
+        root_y: list[float] | None = None,
+    ) -> dict:
+        return {
+            "name": name,
+            "style": style,
+            "sides": sides,
+            "times": times,
+            "first": first,
+            "second": second,
+            "third": third,
+            "spine": spine,
+            "chest": chest,
+            "axes": axes,
+            "spine_axis": spine_axis,
+            "chest_axis": chest_axis,
+            "root_x": root_x,
+            "root_y": root_y,
+        }
+
+    def add_motion_set(category: str, specs: list[dict]) -> None:
+        if category == "punch":
+            limb_bones = ("upper_arm", "forearm", "hand")
+            default_axes = ((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))
+        else:
+            limb_bones = ("thigh", "shin", "foot")
+            default_axes = ((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+
+        for spec in specs:
+            times = spec["times"]
+            frame_count = len(times)
+            for key in ("first", "second", "third", "spine", "chest"):
+                if len(spec[key]) != frame_count:
+                    raise ValueError(f"{spec['name']}: {key} frame count differs")
+            raw_sides = spec["sides"]
+            sides = (raw_sides,) if isinstance(raw_sides, str) else tuple(raw_sides)
+            body_sign = -1.0 if len(sides) == 1 and sides[0] == "R" else 1.0
+            channels: list[tuple[str, str, list[float], list[tuple[float, ...]]]] = []
+            axes = spec.get("axes", default_axes)
+            values = (spec["first"], spec["second"], spec["third"])
+
+            for side in sides:
+                side_sign = -1.0 if side == "R" else 1.0
+                for bone_base, axis, angles in zip(limb_bones, axes, values):
+                    bone_name = f"{bone_base}.{side}"
+                    channels.append((bone_name, "rotation", times, q_series(axis, [side_sign * angle for angle in angles])))
+
+            channels.append(
+                (
+                    "spine",
+                    "rotation",
+                    times,
+                    q_series(spec["spine_axis"], [body_sign * angle for angle in spec["spine"]]),
+                )
+            )
+            channels.append(
+                (
+                    "chest",
+                    "rotation",
+                    times,
+                    q_series(spec["chest_axis"], [body_sign * angle for angle in spec["chest"]]),
+                )
+            )
+
+            root_x = spec.get("root_x")
+            root_y = spec.get("root_y")
+            if root_x is not None or root_y is not None:
+                root_x = root_x if root_x is not None else [0.0] * frame_count
+                root_y = root_y if root_y is not None else [0.0] * frame_count
+                if len(root_x) != frame_count or len(root_y) != frame_count:
+                    raise ValueError(f"{spec['name']}: root motion frame count differs")
+                channels.append(
+                    (
+                        "root",
+                        "translation",
+                        times,
+                        [(body_sign * x, y, 0.0) for x, y in zip(root_x, root_y)],
+                    )
+                )
+
+            add_clip(
+                spec["name"],
+                channels,
+                extras={
+                    "category": category,
+                    "style": spec["style"],
+                    "sharedAcrossAnimalVariants": True,
+                },
+            )
+
+    def q_series(axis: Vec3, angles: list[float]) -> list[tuple[float, float, float, float]]:
+        return [quaternion_axis(axis, angle) for angle in angles]
+
+    punch_specs = [
+        motion_spec("Punch_01_Jab", "quick straight", "R", [0.0, 0.10, 0.22, 0.46], [0.0, 0.18, 0.42, 0.0], [0.0, 0.28, 0.52, 0.0], [0.0, 0.04, 0.08, 0.0], [0.0, 0.03, 0.06, 0.0], [0.0, 0.05, 0.10, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_02_Cross", "long rear straight", "L", [0.0, 0.16, 0.32, 0.68], [0.0, 0.28, 0.64, 0.0], [0.0, 0.34, 0.75, 0.0], [0.0, 0.07, 0.15, 0.0], [0.0, 0.06, 0.15, 0.0], [0.0, 0.08, 0.18, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_03_Hook", "wide hook", "R", [0.0, 0.16, 0.34, 0.60], [0.0, 0.30, 0.62, 0.0], [0.0, 0.12, 0.42, 0.0], [0.0, 0.18, 0.36, 0.0], [0.0, 0.10, 0.22, 0.0], [0.0, 0.14, 0.28, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_04_Uppercut", "rising uppercut", "R", [0.0, 0.18, 0.34, 0.70], [0.0, 0.24, 0.58, 0.0], [0.0, 0.44, 0.72, 0.0], [0.0, 0.10, 0.18, 0.0], [0.0, 0.05, 0.12, 0.0], [0.0, 0.06, 0.15, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_05_Overhand", "high overhand", "L", [0.0, 0.20, 0.40, 0.80], [0.0, 0.40, 0.78, 0.0], [0.0, 0.25, 0.58, 0.0], [0.0, 0.10, 0.20, 0.0], [0.0, 0.12, 0.22, 0.0], [0.0, 0.14, 0.26, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_06_Backfist", "turning backfist", "R", [0.0, 0.14, 0.30, 0.56], [0.0, 0.18, 0.50, 0.0], [0.0, 0.08, 0.34, 0.0], [0.0, 0.22, 0.48, 0.0], [0.0, 0.08, 0.16, 0.0], [0.0, 0.10, 0.20, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_07_LongJab", "stepping long jab", "L", [0.0, 0.18, 0.38, 0.78], [0.0, 0.10, 0.52, 0.0], [0.0, 0.22, 0.64, 0.0], [0.0, 0.04, 0.12, 0.0], [0.0, 0.04, 0.09, 0.0], [0.0, 0.05, 0.12, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)), root_x=[0.0, 0.02, 0.05, 0.0]),
+        motion_spec("Punch_08_BodyHook", "low body hook", "R", [0.0, 0.15, 0.34, 0.62], [0.0, 0.34, 0.58, 0.0], [0.0, 0.16, 0.38, 0.0], [0.0, 0.12, 0.28, 0.0], [0.0, 0.18, 0.30, 0.0], [0.0, 0.20, 0.34, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_09_StraightBody", "low straight", "L", [0.0, 0.14, 0.28, 0.58], [0.0, 0.22, 0.52, 0.0], [0.0, 0.42, 0.78, 0.0], [0.0, 0.06, 0.14, 0.0], [0.0, 0.10, 0.18, 0.0], [0.0, 0.12, 0.22, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_10_Elbow", "close elbow", "R", [0.0, 0.14, 0.28, 0.52], [0.0, 0.32, 0.56, 0.0], [0.0, 0.06, 0.18, 0.0], [0.0, 0.04, 0.08, 0.0], [0.0, 0.10, 0.18, 0.0], [0.0, 0.12, 0.22, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_11_SpinBackfist", "spinning backfist", "L", [0.0, 0.22, 0.42, 0.86], [0.0, 0.38, 0.74, 0.0], [0.0, 0.10, 0.32, 0.0], [0.0, 0.28, 0.52, 0.0], [0.0, 0.25, 0.48, 0.0], [0.0, 0.22, 0.44, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_12_DoubleJab", "double jab", ("L", "R"), [0.0, 0.10, 0.24, 0.50], [0.0, 0.20, 0.46, 0.0], [0.0, 0.28, 0.56, 0.0], [0.0, 0.04, 0.10, 0.0], [0.0, 0.0, 0.02, 0.0], [0.0, 0.0, 0.03, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_13_CrossHook", "double cross hook", ("L", "R"), [0.0, 0.14, 0.30, 0.64], [0.0, 0.25, 0.56, 0.0], [0.0, 0.18, 0.48, 0.0], [0.0, 0.12, 0.30, 0.0], [0.0, 0.02, 0.08, 0.0], [0.0, 0.03, 0.10, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_14_HookCross", "hook cross", "R", [0.0, 0.16, 0.35, 0.70], [0.0, 0.30, 0.60, 0.0], [0.0, 0.10, 0.40, 0.0], [0.0, 0.16, 0.34, 0.0], [0.0, 0.06, 0.14, 0.0], [0.0, 0.08, 0.16, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_15_OneTwo", "one two combination", "L", [0.0, 0.12, 0.28, 0.58], [0.0, 0.15, 0.48, 0.0], [0.0, 0.30, 0.68, 0.0], [0.0, 0.06, 0.13, 0.0], [0.0, 0.08, 0.16, 0.0], [0.0, 0.10, 0.20, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_16_RisingHook", "rising hook", "R", [0.0, 0.16, 0.34, 0.64], [0.0, 0.18, 0.50, 0.0], [0.0, 0.28, 0.64, 0.0], [0.0, 0.14, 0.28, 0.0], [0.0, 0.12, 0.24, 0.0], [0.0, 0.14, 0.28, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))),
+        motion_spec("Punch_17_LeapingPunch", "leaping punch", "L", [0.0, 0.16, 0.34, 0.72], [0.0, 0.28, 0.62, 0.0], [0.0, 0.36, 0.72, 0.0], [0.0, 0.08, 0.18, 0.0], [0.0, 0.06, 0.14, 0.0], [0.0, 0.08, 0.16, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)), root_y=[0.0, 0.08, 0.18, 0.0]),
+        motion_spec("Punch_18_ChargePunch", "charged punch", "R", [0.0, 0.24, 0.44, 0.90], [0.0, 0.08, 0.56, 0.0], [0.0, 0.16, 0.68, 0.0], [0.0, 0.02, 0.12, 0.0], [0.0, 0.06, 0.16, 0.0], [0.0, 0.08, 0.18, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)), root_x=[0.0, 0.03, 0.08, 0.0]),
+        motion_spec("Punch_19_BurstPunch", "double burst", ("L", "R"), [0.0, 0.12, 0.26, 0.56], [0.0, 0.32, 0.70, 0.0], [0.0, 0.38, 0.80, 0.0], [0.0, 0.12, 0.22, 0.0], [0.0, 0.0, 0.10, 0.0], [0.0, 0.0, 0.14, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)), root_x=[0.0, 0.05, 0.10, 0.0]),
+        motion_spec("Punch_20_HeavySmash", "heavy smash", "R", [0.0, 0.22, 0.46, 0.94], [0.0, 0.45, 0.86, 0.0], [0.0, 0.32, 0.70, 0.0], [0.0, 0.14, 0.28, 0.0], [0.0, 0.16, 0.28, 0.0], [0.0, 0.18, 0.34, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)), root_y=[0.0, 0.02, -0.08, 0.0]),
+    ]
+
+    kick_specs = [
+        motion_spec("Kick_01_Front", "front kick", "R", [0.0, 0.14, 0.30, 0.62], [0.0, 0.18, 0.42, 0.0], [0.0, 0.48, 0.78, 0.0], [0.0, 0.12, 0.24, 0.0], [0.0, 0.03, 0.06, 0.0], [0.0, 0.04, 0.08, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))),
+        motion_spec("Kick_02_Low", "low kick", "L", [0.0, 0.16, 0.34, 0.66], [0.0, 0.28, 0.60, 0.0], [0.0, 0.16, 0.38, 0.0], [0.0, 0.10, 0.20, 0.0], [0.0, 0.08, 0.14, 0.0], [0.0, 0.10, 0.18, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))),
+        motion_spec("Kick_03_Mid", "mid kick", "R", [0.0, 0.16, 0.34, 0.70], [0.0, 0.20, 0.52, 0.0], [0.0, 0.42, 0.78, 0.0], [0.0, 0.10, 0.20, 0.0], [0.0, 0.04, 0.08, 0.0], [0.0, 0.06, 0.12, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))),
+        motion_spec("Kick_04_High", "high kick", "L", [0.0, 0.18, 0.38, 0.78], [0.0, 0.34, 0.68, 0.0], [0.0, 0.56, 0.90, 0.0], [0.0, 0.18, 0.30, 0.0], [0.0, 0.10, 0.18, 0.0], [0.0, 0.12, 0.22, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))),
+        motion_spec("Kick_05_Roundhouse", "roundhouse", "R", [0.0, 0.18, 0.38, 0.76], [0.0, 0.42, 0.80, 0.0], [0.0, 0.20, 0.58, 0.0], [0.0, 0.30, 0.62, 0.0], [0.0, 0.22, 0.36, 0.0], [0.0, 0.24, 0.40, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
+        motion_spec("Kick_06_Side", "side kick", "L", [0.0, 0.18, 0.36, 0.74], [0.0, 0.36, 0.72, 0.0], [0.0, 0.32, 0.70, 0.0], [0.0, 0.02, 0.24, 0.0], [0.0, 0.14, 0.28, 0.0], [0.0, 0.16, 0.30, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
+        motion_spec("Kick_07_Back", "back kick", "R", [0.0, 0.20, 0.42, 0.82], [0.0, 0.45, 0.84, 0.0], [0.0, 0.40, 0.76, 0.0], [0.0, 0.14, 0.32, 0.0], [0.0, 0.18, 0.34, 0.0], [0.0, 0.20, 0.38, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
+        motion_spec("Kick_08_Axe", "axe kick", "L", [0.0, 0.20, 0.42, 0.86], [0.0, 0.30, 0.62, 0.0], [0.0, 0.62, 0.94, 0.0], [0.0, 0.32, 0.54, 0.0], [0.0, 0.06, 0.12, 0.0], [0.0, 0.08, 0.16, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))),
+        motion_spec("Kick_09_Sweep", "low sweep", "R", [0.0, 0.18, 0.38, 0.74], [0.0, 0.48, 0.82, 0.0], [0.0, 0.12, 0.28, 0.0], [0.0, 0.20, 0.40, 0.0], [0.0, 0.22, 0.40, 0.0], [0.0, 0.24, 0.44, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))),
+        motion_spec("Kick_10_Thrust", "thrust kick", "L", [0.0, 0.14, 0.30, 0.64], [0.0, 0.22, 0.54, 0.0], [0.0, 0.50, 0.86, 0.0], [0.0, 0.12, 0.22, 0.0], [0.0, 0.08, 0.16, 0.0], [0.0, 0.10, 0.20, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))),
+        motion_spec("Kick_11_Spin", "spinning kick", "R", [0.0, 0.22, 0.44, 0.88], [0.0, 0.44, 0.86, 0.0], [0.0, 0.30, 0.68, 0.0], [0.0, 0.26, 0.56, 0.0], [0.0, 0.28, 0.54, 0.0], [0.0, 0.30, 0.58, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
+        motion_spec("Kick_12_Heel", "heel kick", "L", [0.0, 0.18, 0.38, 0.78], [0.0, 0.24, 0.56, 0.0], [0.0, 0.58, 0.92, 0.0], [0.0, 0.36, 0.72, 0.0], [0.0, 0.12, 0.20, 0.0], [0.0, 0.14, 0.24, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))),
+        motion_spec("Kick_13_Knee", "knee strike", "R", [0.0, 0.14, 0.28, 0.56], [0.0, 0.56, 0.86, 0.0], [0.0, 0.08, 0.24, 0.0], [0.0, 0.02, 0.10, 0.0], [0.0, 0.12, 0.22, 0.0], [0.0, 0.14, 0.26, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))),
+        motion_spec("Kick_14_JumpFront", "jumping front kick", ("L", "R"), [0.0, 0.16, 0.34, 0.72], [0.0, 0.22, 0.56, 0.0], [0.0, 0.48, 0.82, 0.0], [0.0, 0.10, 0.22, 0.0], [0.0, 0.02, 0.06, 0.0], [0.0, 0.04, 0.08, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0)), root_y=[0.0, 0.10, 0.18, 0.0]),
+        motion_spec("Kick_15_JumpRound", "jumping roundhouse", "R", [0.0, 0.20, 0.42, 0.84], [0.0, 0.46, 0.82, 0.0], [0.0, 0.34, 0.70, 0.0], [0.0, 0.28, 0.58, 0.0], [0.0, 0.18, 0.30, 0.0], [0.0, 0.20, 0.34, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0)), root_y=[0.0, 0.12, 0.22, 0.0]),
+        motion_spec("Kick_16_Double", "double kick", ("L", "R"), [0.0, 0.16, 0.34, 0.70], [0.0, 0.34, 0.66, 0.0], [0.0, 0.42, 0.76, 0.0], [0.0, 0.10, 0.24, 0.0], [0.0, 0.04, 0.08, 0.0], [0.0, 0.06, 0.10, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0)), root_y=[0.0, 0.06, 0.14, 0.0]),
+        motion_spec("Kick_17_Flying", "flying kick", "L", [0.0, 0.18, 0.40, 0.82], [0.0, 0.38, 0.78, 0.0], [0.0, 0.44, 0.82, 0.0], [0.0, 0.18, 0.36, 0.0], [0.0, 0.10, 0.22, 0.0], [0.0, 0.12, 0.24, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0)), root_x=[0.0, 0.04, 0.10, 0.0], root_y=[0.0, 0.10, 0.24, 0.0]),
+        motion_spec("Kick_18_Heavy", "heavy kick", "R", [0.0, 0.22, 0.46, 0.94], [0.0, 0.50, 0.92, 0.0], [0.0, 0.46, 0.84, 0.0], [0.0, 0.20, 0.40, 0.0], [0.0, 0.16, 0.30, 0.0], [0.0, 0.18, 0.34, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0)), root_y=[0.0, 0.02, -0.10, 0.0]),
+        motion_spec("Kick_19_Crescent", "crescent kick", "L", [0.0, 0.20, 0.42, 0.84], [0.0, 0.42, 0.80, 0.0], [0.0, 0.24, 0.60, 0.0], [0.0, 0.34, 0.68, 0.0], [0.0, 0.22, 0.42, 0.0], [0.0, 0.24, 0.46, 0.0], axes=((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))),
+        motion_spec("Kick_20_Burst", "burst double kick", ("L", "R"), [0.0, 0.14, 0.30, 0.64], [0.0, 0.38, 0.78, 0.0], [0.0, 0.44, 0.86, 0.0], [0.0, 0.18, 0.36, 0.0], [0.0, 0.02, 0.10, 0.0], [0.0, 0.04, 0.12, 0.0], axes=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0)), root_y=[0.0, 0.08, 0.16, 0.0]),
+    ]
+
+    add_motion_set("punch", punch_specs)
+    add_motion_set("kick", kick_specs)
 
     builder.scene_nodes = list(range(mesh_node_count)) + [bone_indices["root"]]
 
