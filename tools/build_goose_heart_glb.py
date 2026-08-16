@@ -339,6 +339,8 @@ class GLBBuilder:
         width: float,
         height: float,
         material_index: int,
+        *,
+        tip_drop: float = 0.0,
     ) -> None:
         # A compact four-sided tapered wedge pointing toward negative X.
         sections = ((0.0, 1.0), (0.58, 0.82), (1.0, 0.08))
@@ -346,14 +348,15 @@ class GLBBuilder:
         indices: list[int] = []
         for t, factor in sections:
             x = base[0] - length_value * t
+            center_y = base[1] - tip_drop * t
             half_y = width * factor / 2
             half_z = height * factor / 2
             vertices.extend(
                 (
-                    (x, base[1] - half_y, base[2] - half_z),
-                    (x, base[1] + half_y, base[2] - half_z),
-                    (x, base[1] + half_y, base[2] + half_z),
-                    (x, base[1] - half_y, base[2] + half_z),
+                    (x, center_y - half_y, base[2] - half_z),
+                    (x, center_y + half_y, base[2] - half_z),
+                    (x, center_y + half_y, base[2] + half_z),
+                    (x, center_y - half_y, base[2] + half_z),
                 )
             )
         for section in range(2):
@@ -488,6 +491,93 @@ def add_eye_pair(
             glint_material,
             segments=8,
             rings=5,
+        )
+
+
+def add_goose_eye_pair(
+    builder: GLBBuilder,
+    *,
+    eye_ring_material: int,
+    sclera_material: int,
+    iris_material: int,
+    pupil_material: int,
+    glint_material: int,
+    x: float,
+    y: float,
+    spacing: float = 0.22,
+) -> None:
+    """Add layered eyes facing the character's negative-X front direction."""
+    for label, z in (("L", -spacing), ("R", spacing)):
+        builder.add_uv_sphere(
+            f"GooseEyeRing_{label}",
+            (x, y, z),
+            (0.095, 0.108, 0.050),
+            eye_ring_material,
+            segments=14,
+            rings=9,
+        )
+        builder.add_uv_sphere(
+            f"GooseEyeSclera_{label}",
+            (x - 0.020, y, z),
+            (0.070, 0.083, 0.036),
+            sclera_material,
+            segments=14,
+            rings=9,
+        )
+        builder.add_uv_sphere(
+            f"GooseEyeIris_{label}",
+            (x - 0.053, y, z),
+            (0.041, 0.052, 0.020),
+            iris_material,
+            segments=12,
+            rings=8,
+        )
+        builder.add_uv_sphere(
+            f"GooseEyePupil_{label}",
+            (x - 0.069, y, z),
+            (0.020, 0.030, 0.012),
+            pupil_material,
+            segments=10,
+            rings=7,
+        )
+        builder.add_uv_sphere(
+            f"GooseEyeGlint_{label}",
+            (x - 0.082, y + 0.018, z + 0.014),
+            (0.010, 0.013, 0.007),
+            glint_material,
+            segments=8,
+            rings=5,
+        )
+
+
+def add_goose_neck_feathers(
+    builder: GLBBuilder,
+    light_material: int,
+    mid_material: int,
+    shadow_material: int,
+) -> None:
+    """Layer small feathers over the long throat and clavicle transition."""
+    feather_specs = [
+        ((-0.25, 2.20, 0.31), (-0.25, 2.47, 0.35), 0.16, shadow_material),
+        ((-0.08, 2.18, 0.34), (-0.08, 2.51, 0.38), 0.18, light_material),
+        ((0.10, 2.19, 0.34), (0.10, 2.50, 0.38), 0.18, mid_material),
+        ((0.26, 2.21, 0.30), (0.25, 2.45, 0.34), 0.16, shadow_material),
+        ((-0.22, 2.40, 0.33), (-0.27, 2.66, 0.36), 0.15, mid_material),
+        ((-0.04, 2.43, 0.37), (-0.06, 2.72, 0.40), 0.17, light_material),
+        ((0.14, 2.42, 0.36), (0.16, 2.70, 0.39), 0.16, mid_material),
+        ((-0.17, 2.62, 0.32), (-0.20, 2.84, 0.34), 0.13, shadow_material),
+        ((0.02, 2.64, 0.36), (0.02, 2.86, 0.38), 0.14, light_material),
+        ((0.18, 2.62, 0.32), (0.20, 2.82, 0.35), 0.13, mid_material),
+    ]
+    for index, (base, tip, width, material_index) in enumerate(feather_specs):
+        builder.add_feather(
+            f"GooseNeckFeather_{index}",
+            base,
+            tip,
+            width,
+            0.028,
+            material_index,
+            curve=0.025,
         )
 
 
@@ -704,7 +794,7 @@ def mesh_bone_name(mesh_name: str) -> str:
     lower = mesh_name.lower()
     if lower.startswith("wing_"):
         return "wing.R"
-    if "goosemask" in lower:
+    if "goose" in lower:
         return head_bone_name(lower)
     if is_animal_head_mesh(lower):
         return head_bone_name(lower)
@@ -747,7 +837,7 @@ def smooth_candidate_bones(mesh_name: str) -> list[str]:
     lower = mesh_name.lower()
     if lower.startswith("wing_"):
         return ["chest", "wing.R"]
-    if "goosemask" in lower or is_animal_head_mesh(lower):
+    if "goose" in lower or is_animal_head_mesh(lower):
         if "clavicle" in lower:
             return ["chest", "neck"]
         if "throat" in lower or "neck" in lower:
@@ -1257,12 +1347,16 @@ def build_model(variant: str = "goose") -> GLBBuilder:
     builder = GLBBuilder()
     gold = builder.material("Golden skin", (0.95, 0.48, 0.035, 1.0), roughness=0.38)
     gold_dark = builder.material("Golden shadow", (0.66, 0.22, 0.012, 1.0), roughness=0.48)
-    mask_white = builder.material("Goose mask white", (0.92, 0.95, 0.96, 1.0), roughness=0.38)
+    # Keep the legacy unused materials in non-goose files so the six animal
+    # variants remain byte-compatible apart from intentional goose changes.
+    if variant != "goose":
+        builder.material("Goose mask white", (0.92, 0.95, 0.96, 1.0), roughness=0.38)
     wing_white = builder.material("Wing white", (0.88, 0.96, 1.0, 1.0), roughness=0.36, double_sided=True)
     wing_blue = builder.material("Wing pale blue", (0.58, 0.80, 0.96, 1.0), roughness=0.40, double_sided=True)
-    beak_orange = builder.material("Goose beak orange", (1.0, 0.30, 0.035, 1.0), roughness=0.34)
-    eye_black = builder.material("Mask eye opening", (0.004, 0.006, 0.009, 1.0), roughness=0.22)
-    strap_black = builder.material("Mask strap", (0.025, 0.028, 0.035, 1.0), roughness=0.42)
+    if variant != "goose":
+        builder.material("Goose beak orange", (1.0, 0.30, 0.035, 1.0), roughness=0.34)
+        builder.material("Mask eye opening", (0.004, 0.006, 0.009, 1.0), roughness=0.22)
+        builder.material("Mask strap", (0.025, 0.028, 0.035, 1.0), roughness=0.42)
     heart_red = builder.material("Heart crimson", (0.68, 0.025, 0.035, 1.0), roughness=0.36)
     heart_dark = builder.material("Heart cavity", (0.22, 0.012, 0.014, 1.0), roughness=0.55)
     vein_blue = builder.material("Heart blue vessels", (0.025, 0.10, 0.34, 1.0), roughness=0.40)
@@ -1311,15 +1405,165 @@ def build_model(variant: str = "goose") -> GLBBuilder:
         builder.add_uv_sphere(f"{label}_Foot", (ankle[0], 0.09, 0.22), (0.27, 0.11, 0.43), gold)
 
     if variant == "goose":
-        # Realistic-looking goose mask and the white section reaching the clavicles.
-        builder.add_uv_sphere("GooseMaskFace", (-0.15, 2.88, 0.10), (0.43, 0.43, 0.32), mask_white, segments=18, rings=12)
-        builder.add_beak("GooseMaskBeak", (-0.42, 2.83, 0.16), 0.48, 0.28, 0.20, beak_orange)
-        builder.add_uv_sphere("GooseMaskNostril", (-0.74, 2.89, 0.27), (0.045, 0.022, 0.025), eye_black, segments=10, rings=6)
-        builder.add_uv_sphere("GooseMaskEyeOpening", (-0.39, 3.01, 0.35), (0.095, 0.105, 0.028), eye_black, segments=12, rings=8)
-        builder.add_uv_sphere("GooseMaskEyeGlint", (-0.405, 3.035, 0.375), (0.020, 0.020, 0.010), eye_glint, segments=8, rings=5)
-        builder.add_cylinder("GooseMaskThroat", (0.0, 2.12, 0.02), (-0.12, 2.62, 0.06), 0.32, 0.27, mask_white, segments=14)
-        builder.add_uv_sphere("GooseMaskClaviclePlate", (-0.02, 2.14, 0.04), (0.52, 0.14, 0.27), mask_white, segments=16, rings=8)
-        builder.add_cylinder("GooseMaskSideStrap", (0.23, 2.78, -0.12), (0.34, 2.78, 0.12), 0.045, 0.045, strap_black, segments=8)
+        # Updated anatomy: a goose head, not a duck-like mask. The neck is
+        # longer, reaches the clavicles, and uses layered feather materials.
+        goose_feather = builder.material(
+            "Goose feather white",
+            (0.93, 0.94, 0.92, 1.0),
+            roughness=0.66,
+        )
+        goose_feather_light = builder.material(
+            "Goose feather highlight",
+            (0.99, 0.99, 0.97, 1.0),
+            roughness=0.58,
+        )
+        goose_feather_shadow = builder.material(
+            "Goose feather shadow",
+            (0.72, 0.76, 0.74, 1.0),
+            roughness=0.72,
+        )
+        goose_beak = builder.material(
+            "Goose bill warm orange",
+            (0.98, 0.38, 0.075, 1.0),
+            roughness=0.42,
+        )
+        goose_beak_shadow = builder.material(
+            "Goose bill seam",
+            (0.48, 0.12, 0.025, 1.0),
+            roughness=0.50,
+        )
+        goose_eye_ring = builder.material(
+            "Goose eye ring",
+            (0.86, 0.80, 0.67, 1.0),
+            roughness=0.58,
+        )
+        goose_sclera = builder.material(
+            "Goose eye sclera",
+            (0.92, 0.90, 0.82, 1.0),
+            roughness=0.38,
+        )
+        goose_iris = builder.material(
+            "Goose gray brown iris",
+            (0.25, 0.30, 0.28, 1.0),
+            roughness=0.26,
+        )
+        goose_pupil = builder.material(
+            "Goose pupil",
+            (0.012, 0.010, 0.008, 1.0),
+            roughness=0.22,
+        )
+
+        builder.add_uv_sphere(
+            "GooseHeadFace",
+            (-0.10, 3.06, 0.10),
+            (0.48, 0.48, 0.35),
+            goose_feather,
+            segments=20,
+            rings=14,
+        )
+        builder.add_uv_sphere(
+            "GooseHeadCrown",
+            (-0.02, 3.27, 0.10),
+            (0.38, 0.28, 0.30),
+            goose_feather_light,
+            segments=18,
+            rings=10,
+        )
+        builder.add_uv_sphere(
+            "GooseHeadCheek",
+            (-0.01, 2.96, 0.10),
+            (0.37, 0.34, 0.31),
+            goose_feather,
+            segments=18,
+            rings=11,
+        )
+        builder.add_beak(
+            "GooseBeak",
+            (-0.34, 2.96, 0.16),
+            0.72,
+            0.25,
+            0.17,
+            goose_beak,
+            tip_drop=0.055,
+        )
+        builder.add_cylinder(
+            "GooseBeakSeam",
+            (-0.38, 2.955, 0.285),
+            (-0.93, 2.91, 0.285),
+            0.009,
+            0.004,
+            goose_beak_shadow,
+            segments=8,
+        )
+        for label, z in (("L", 0.02), ("R", 0.29)):
+            builder.add_uv_sphere(
+                f"GooseNostril_{label}",
+                (-0.70, 3.015, z),
+                (0.037, 0.023, 0.028),
+                goose_beak_shadow,
+                segments=10,
+                rings=6,
+            )
+        add_goose_eye_pair(
+            builder,
+            eye_ring_material=goose_eye_ring,
+            sclera_material=goose_sclera,
+            iris_material=goose_iris,
+            pupil_material=goose_pupil,
+            glint_material=eye_glint,
+            x=-0.45,
+            y=3.20,
+            spacing=0.22,
+        )
+        builder.add_feather(
+            "GooseBrowFeather_L",
+            (-0.44, 3.28, -0.20),
+            (-0.34, 3.34, -0.20),
+            0.09,
+            0.024,
+            goose_feather_shadow,
+            curve=0.018,
+        )
+        builder.add_feather(
+            "GooseBrowFeather_R",
+            (-0.44, 3.28, 0.20),
+            (-0.34, 3.34, 0.20),
+            0.09,
+            0.024,
+            goose_feather_shadow,
+            curve=0.018,
+        )
+        builder.add_cylinder(
+            "GooseNeck",
+            (0.0, 2.10, 0.02),
+            (-0.08, 2.78, 0.06),
+            0.37,
+            0.29,
+            goose_feather,
+            segments=18,
+        )
+        builder.add_uv_sphere(
+            "GooseThroat",
+            (-0.04, 2.54, 0.08),
+            (0.31, 0.40, 0.27),
+            goose_feather,
+            segments=18,
+            rings=11,
+        )
+        builder.add_uv_sphere(
+            "GooseClavicleFeathers",
+            (-0.02, 2.15, 0.04),
+            (0.54, 0.18, 0.30),
+            goose_feather_shadow,
+            segments=18,
+            rings=9,
+        )
+        add_goose_neck_feathers(
+            builder,
+            goose_feather_light,
+            goose_feather,
+            goose_feather_shadow,
+        )
     else:
         add_animal_head(builder, variant)
 
