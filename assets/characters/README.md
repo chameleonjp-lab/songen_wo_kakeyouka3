@@ -73,3 +73,18 @@ loader.load(modelPath, (gltf) => {
 ## 生成元
 
 `tools/build_goose_heart_glb.py` は、外部ライブラリなしで、骨格・スキニング・基本アニメーションを含むGLBを再生成するためのスクリプトです。
+
+## 動物頭部バリエーション
+
+採用したゴールデンボディ、胸部の小型の露出心臓、画面右側の翼、ポーズを共通にして、頭部だけを差し替えた6種類を追加しています。
+
+| 動物 | 通常版 | スムース版 |
+| --- | --- | --- |
+| ライオン | `lion-heart-champion.glb` | `lion-heart-champion-smooth.glb` |
+| サイ | `rhinoceros-heart-champion.glb` | `rhinoceros-heart-champion-smooth.glb` |
+| ワニ | `crocodile-heart-champion.glb` | `crocodile-heart-champion-smooth.glb` |
+| ゴリラ | `gorilla-heart-champion.glb` | `gorilla-heart-champion-smooth.glb` |
+| クマ | `bear-heart-champion.glb` | `bear-heart-champion-smooth.glb` |
+| カバ | `hippopotamus-heart-champion.glb` | `hippopotamus-heart-champion-smooth.glb` |
+
+各ファイルはガチョウ版と同じ19本の骨格、`Idle`・`Guard`・`Punch_R`・`Kick_L`の4アニメーションを持ちます。通常版は軽量なパーツ単位の割り当て、`-smooth`版は関節周辺を最大4本の骨で補間する構成です。

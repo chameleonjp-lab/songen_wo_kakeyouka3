@@ -11,4 +11,4 @@
 | Bear | `bear-head-design.jpg` | Brown bear face with rounded ears and furred neck |
 | Hippopotamus | `hippopotamus-head-design.jpg` | Gray-purple hippo face with a broad muzzle and folded neck |
 
-これらは頭部デザイン確認用の画像アセットです。採用案が決まったら、対応する頭部メッシュをGLBへ実装し、共通ボディの骨格・アニメーションと接続します。
+これらは頭部デザイン確認用の画像アセットです。対応する頭部メッシュは、同じディレクトリ階層の親フォルダにある各GLBへ実装済みです。GLBは共通ボディの骨格・アニメーションを使い、通常版とスムース版を別ファイルにしています。
