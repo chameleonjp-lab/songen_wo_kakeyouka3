@@ -69,6 +69,7 @@ class GLBBuilder:
         self.buffer_views: list[dict] = []
         self.accessors: list[dict] = []
         self.meshes: list[dict] = []
+        self.mesh_vertices: list[list[Vec3]] = []
         self.nodes: list[dict] = []
         self.materials: list[dict] = []
         self.skins: list[dict] = []
@@ -183,6 +184,7 @@ class GLBBuilder:
         normal_accessor = self._accessor(normal_view, 5126, len(vertices), "VEC3")
         index_accessor = self._accessor(index_view, index_component, len(indices), "SCALAR")
         mesh_index = len(self.meshes)
+        self.mesh_vertices.append(vertices)
         self.meshes.append(
             {
                 "name": name,
@@ -534,13 +536,80 @@ def mesh_bone_name(mesh_name: str) -> str:
     return "chest"
 
 
-def add_fighter_rig(builder: GLBBuilder) -> None:
-    """Add a rigidly skinned humanoid rig and starter fighting animations.
+def point_segment_distance(point: Vec3, start: Vec3, end: Vec3) -> float:
+    segment = sub(end, start)
+    denominator = dot(segment, segment)
+    if denominator < 1e-8:
+        return length(sub(point, start))
+    amount = max(0.0, min(1.0, dot(sub(point, start), segment) / denominator))
+    nearest = add(start, mul(segment, amount))
+    return length(sub(point, nearest))
 
-    Each existing part is rigidly weighted to one joint.  This is deliberate:
-    it keeps the low-poly character stable while allowing the browser game to
-    animate the model immediately.  A later pass can replace selected parts
-    with smoothly weighted meshes if needed.
+
+def smooth_candidate_bones(mesh_name: str) -> list[str]:
+    lower = mesh_name.lower()
+    if lower.startswith("wing_"):
+        return ["chest", "wing.R"]
+    if "goosemask" in lower:
+        if "clavicle" in lower:
+            return ["chest", "neck"]
+        if "throat" in lower:
+            return ["chest", "neck", "head"]
+        return ["neck", "head"]
+    if "heart" in lower or "chest" in lower or "pectoral" in lower:
+        return ["spine", "chest", "pelvis"]
+    if "torso" in lower or "abdomen" in lower or "abdominal" in lower:
+        return ["pelvis", "spine", "chest"]
+    if "pelvis" in lower:
+        return ["pelvis", "spine", "thigh.L", "thigh.R"]
+
+    side = "L" if "left" in lower else "R" if "right" in lower else ""
+    if "foot" in lower:
+        return [f"shin.{side}", f"foot.{side}"]
+    if "calf" in lower or "knee" in lower:
+        return [f"thigh.{side}", f"shin.{side}", f"foot.{side}"]
+    if "thigh" in lower or "hip" in lower:
+        return ["pelvis", f"thigh.{side}", f"shin.{side}"]
+    if "fist" in lower or "knuckle" in lower:
+        return [f"forearm.{side}", f"hand.{side}"]
+    if "forearm" in lower or "elbow" in lower:
+        return [f"upper_arm.{side}", f"forearm.{side}", f"hand.{side}"]
+    if "bicep" in lower or "shoulder" in lower:
+        return ["chest", f"upper_arm.{side}", f"forearm.{side}"]
+    return ["chest", "spine", "pelvis"]
+
+
+def smooth_vertex_weights(
+    mesh_name: str,
+    vertex: Vec3,
+    candidates: list[str],
+    bone_order: dict[str, int],
+    bone_segments: dict[str, tuple[Vec3, Vec3]],
+) -> list[tuple[int, float]]:
+    scored: list[tuple[str, float]] = []
+    for bone_name in candidates:
+        if bone_name not in bone_order or bone_name not in bone_segments:
+            continue
+        start, end = bone_segments[bone_name]
+        distance = point_segment_distance(vertex, start, end)
+        # A soft inverse-distance field gives two or more bones meaningful
+        # influence around elbows, knees, shoulders and the chest seam.
+        score = 1.0 / ((distance + 0.085) ** 2)
+        scored.append((bone_name, score))
+    if not scored:
+        return [(bone_order["chest"], 1.0)]
+    scored.sort(key=lambda item: item[1], reverse=True)
+    scored = scored[:4]
+    total = sum(score for _, score in scored)
+    return [(bone_order[name], score / total) for name, score in scored]
+
+
+def add_fighter_rig(builder: GLBBuilder, *, smooth: bool = False) -> None:
+    """Add a humanoid rig and starter fighting animations.
+
+    The default mode uses one rigid weight per part.  ``smooth=True`` uses up
+    to four distance-based weights per vertex, so vertices around shoulders,
+    elbows, hips and knees blend between neighboring bones.
     """
 
     mesh_node_count = len(builder.nodes)
@@ -597,8 +666,13 @@ def add_fighter_rig(builder: GLBBuilder) -> None:
         }
     )
 
-    # Bind every existing mesh node to one joint with a rigid weight of 1.0.
+    # Bind every existing mesh node.  The smooth variant retains up to four
+    # influences per vertex; the original variant keeps one rigid influence.
     bone_order = {name: index for index, (name, _, _) in enumerate(bone_specs)}
+    bone_segments: dict[str, tuple[Vec3, Vec3]] = {}
+    for name, parent, _ in bone_specs:
+        start = world_positions[parent] if parent is not None else world_positions[name]
+        bone_segments[name] = (start, world_positions[name])
     for node_index in range(mesh_node_count):
         node = builder.nodes[node_index]
         node["skin"] = skin_index
@@ -610,9 +684,20 @@ def add_fighter_rig(builder: GLBBuilder) -> None:
         vertex_count = builder.accessors[primitive["attributes"]["POSITION"]]["count"]
         joint_values: list[int] = []
         weight_values: list[float] = []
-        for _ in range(vertex_count):
-            joint_values.extend((joint_index, 0, 0, 0))
-            weight_values.extend((1.0, 0.0, 0.0, 0.0))
+        vertices = builder.mesh_vertices[node["mesh"]]
+        candidates = smooth_candidate_bones(node["name"]) if smooth else []
+        for vertex in vertices:
+            influences = (
+                smooth_vertex_weights(node["name"], vertex, candidates, bone_order, bone_segments)
+                if smooth
+                else [(joint_index, 1.0)]
+            )
+            influences = influences[:4]
+            while len(influences) < 4:
+                influences.append((0, 0.0))
+            for joint, weight in influences:
+                joint_values.append(joint)
+                weight_values.append(weight)
         joint_bytes = b"".join(struct.pack("<4H", *joint_values[i : i + 4]) for i in range(0, len(joint_values), 4))
         weight_bytes = b"".join(struct.pack("<4f", *weight_values[i : i + 4]) for i in range(0, len(weight_values), 4))
         joint_offset, joint_size = builder._append_bytes(joint_bytes)
@@ -787,15 +872,20 @@ def build_model() -> GLBBuilder:
 
 
 def main() -> None:
-    output = Path(__file__).with_name("assets") / "characters" / "goose-heart-champion.glb"
-    builder = build_model()
-    add_fighter_rig(builder)
-    builder.save(output)
-    print(
-        f"wrote {output} ({output.stat().st_size} bytes, "
-        f"{len(builder.nodes)} nodes, {len(builder.skins)} skin, "
-        f"{len(builder.animations)} animations)"
+    character_dir = Path(__file__).with_name("assets") / "characters"
+    variants = (
+        (character_dir / "goose-heart-champion.glb", False),
+        (character_dir / "goose-heart-champion-smooth.glb", True),
     )
+    for output, smooth in variants:
+        builder = build_model()
+        add_fighter_rig(builder, smooth=smooth)
+        builder.save(output)
+        print(
+            f"wrote {output} ({output.stat().st_size} bytes, "
+            f"{len(builder.nodes)} nodes, {len(builder.skins)} skin, "
+            f"{len(builder.animations)} animations, smooth={smooth})"
+        )
 
 
 if __name__ == "__main__":
