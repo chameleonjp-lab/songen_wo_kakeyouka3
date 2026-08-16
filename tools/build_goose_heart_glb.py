@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Build a small browser-ready GLB for the adopted goose-heart character.
+"""Build browser-ready GLBs for the adopted heart-champion characters.
 
 The model is intentionally dependency-free.  It is a stylised, multi-part
-static model whose nodes can be animated independently in a browser.
+multi-part model whose nodes can be animated independently in a browser.
 """
 
 from __future__ import annotations
@@ -409,13 +409,19 @@ class GLBBuilder:
             indices.extend((a + 1, b + 1, a + 3, a + 3, b + 1, b + 3))
         self.add_mesh(name, vertices, normals, indices, material_index)
 
-    def save(self, path: Path) -> None:
+    def save(
+        self,
+        path: Path,
+        *,
+        model_name: str = "goose-heart-champion",
+        scene_name: str = "GooseHeartChampion",
+    ) -> None:
         gltf = {
             "asset": {
                 "version": "2.0",
-                "generator": "Codex dependency-free goose-heart GLB builder",
+                "generator": "Codex dependency-free heart-champion GLB builder",
                 "extras": {
-                    "model": "goose-heart-champion",
+                    "model": model_name,
                     "coordinateSystem": "Y-up, front is positive Z",
                     "staticMultiPart": True,
                 },
@@ -423,7 +429,7 @@ class GLBBuilder:
             "scene": 0,
             "scenes": [
                 {
-                    "name": "GooseHeartChampion",
+                    "name": scene_name,
                     "nodes": self.scene_nodes if self.scene_nodes is not None else list(range(len(self.nodes))),
                 }
             ],
@@ -453,6 +459,184 @@ class GLBBuilder:
         output.extend(binary)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(output)
+
+
+def add_eye_pair(
+    builder: GLBBuilder,
+    prefix: str,
+    eye_material: int,
+    glint_material: int,
+    *,
+    x: float,
+    y: float,
+    z_center: float = 0.10,
+    spacing: float = 0.16,
+) -> None:
+    for label, z in (("L", z_center - spacing), ("R", z_center + spacing)):
+        builder.add_uv_sphere(
+            f"{prefix}_Eye_{label}",
+            (x, y, z),
+            (0.060, 0.072, 0.036),
+            eye_material,
+            segments=12,
+            rings=8,
+        )
+        builder.add_uv_sphere(
+            f"{prefix}_EyeGlint_{label}",
+            (x - 0.018, y + 0.018, z + 0.024),
+            (0.014, 0.016, 0.010),
+            glint_material,
+            segments=8,
+            rings=5,
+        )
+
+
+def add_animal_neck(
+    builder: GLBBuilder,
+    prefix: str,
+    skin_material: int,
+    strap_material: int,
+) -> None:
+    # The neck ends at the same clavicle line as the goose version so that
+    # the replacement head can share the existing chest and head bones.
+    builder.add_cylinder(
+        f"{prefix}_Neck",
+        (0.0, 2.12, 0.02),
+        (-0.10, 2.62, 0.05),
+        0.34,
+        0.28,
+        skin_material,
+        segments=16,
+    )
+    builder.add_uv_sphere(
+        f"{prefix}_ClaviclePlate",
+        (-0.02, 2.14, 0.04),
+        (0.52, 0.14, 0.27),
+        skin_material,
+        segments=16,
+        rings=8,
+    )
+    builder.add_cylinder(
+        f"{prefix}_SideStrap",
+        (0.23, 2.78, -0.12),
+        (0.34, 2.78, 0.12),
+        0.045,
+        0.045,
+        strap_material,
+        segments=8,
+    )
+
+
+def add_animal_head(builder: GLBBuilder, variant: str) -> None:
+    """Add one animal head while keeping the goose head's attachment points."""
+
+    prefix = {
+        "lion": "Lion",
+        "rhinoceros": "Rhinoceros",
+        "crocodile": "Crocodile",
+        "gorilla": "Gorilla",
+        "bear": "Bear",
+        "hippopotamus": "Hippopotamus",
+    }[variant]
+    strap = builder.material("Animal head strap", (0.025, 0.028, 0.035, 1.0), roughness=0.42)
+    glint = builder.material("Animal eye glint", (0.95, 0.98, 1.0, 1.0), roughness=0.18)
+
+    if variant == "lion":
+        mane = builder.material("Lion mane", (0.22, 0.075, 0.018, 1.0), roughness=0.62)
+        fur = builder.material("Lion tawny fur", (0.62, 0.30, 0.065, 1.0), roughness=0.52)
+        muzzle = builder.material("Lion muzzle", (0.72, 0.46, 0.22, 1.0), roughness=0.56)
+        nose = builder.material("Lion nose", (0.075, 0.035, 0.025, 1.0), roughness=0.40)
+        eyes = builder.material("Lion amber eyes", (0.82, 0.48, 0.06, 1.0), roughness=0.22)
+        builder.add_uv_sphere(f"{prefix}_Mane", (-0.02, 2.90, 0.04), (0.58, 0.56, 0.45), mane, segments=20, rings=12)
+        builder.add_uv_sphere(f"{prefix}_HeadFace", (-0.20, 2.92, 0.12), (0.43, 0.43, 0.32), fur, segments=18, rings=12)
+        builder.add_uv_sphere(f"{prefix}_Muzzle", (-0.49, 2.79, 0.21), (0.23, 0.18, 0.21), muzzle, segments=16, rings=9)
+        builder.add_uv_sphere(f"{prefix}_Nose", (-0.68, 2.81, 0.23), (0.082, 0.065, 0.075), nose, segments=12, rings=8)
+        builder.add_uv_sphere(f"{prefix}_Ear_L", (-0.08, 3.27, -0.26), (0.16, 0.18, 0.13), fur, segments=12, rings=8)
+        builder.add_uv_sphere(f"{prefix}_Ear_R", (-0.08, 3.27, 0.30), (0.16, 0.18, 0.13), fur, segments=12, rings=8)
+        add_eye_pair(builder, prefix, eyes, glint, x=-0.43, y=3.04, z_center=0.10, spacing=0.14)
+        add_animal_neck(builder, prefix, mane, strap)
+        return
+
+    if variant == "rhinoceros":
+        skin = builder.material("Rhinoceros gray skin", (0.36, 0.35, 0.32, 1.0), roughness=0.76)
+        muzzle = builder.material("Rhinoceros muzzle", (0.28, 0.27, 0.24, 1.0), roughness=0.72)
+        horn = builder.material("Rhinoceros horn", (0.55, 0.50, 0.42, 1.0), roughness=0.70)
+        eyes = builder.material("Rhinoceros eyes", (0.09, 0.065, 0.04, 1.0), roughness=0.28)
+        builder.add_uv_sphere(f"{prefix}_HeadFace", (-0.06, 2.93, 0.08), (0.52, 0.47, 0.37), skin, segments=18, rings=12)
+        builder.add_uv_sphere(f"{prefix}_Muzzle", (-0.43, 2.80, 0.15), (0.32, 0.25, 0.29), muzzle, segments=16, rings=9)
+        builder.add_uv_sphere(f"{prefix}_Nose", (-0.68, 2.84, 0.18), (0.095, 0.075, 0.10), eyes, segments=12, rings=8)
+        builder.add_cylinder(f"{prefix}_Horn_Large", (-0.42, 3.06, 0.17), (-0.73, 3.40, 0.17), 0.12, 0.012, horn, segments=12)
+        builder.add_cylinder(f"{prefix}_Horn_Small", (-0.25, 3.03, -0.03), (-0.46, 3.28, -0.03), 0.075, 0.010, horn, segments=12)
+        builder.add_uv_sphere(f"{prefix}_Ear_L", (-0.04, 3.34, -0.27), (0.14, 0.20, 0.11), skin, segments=12, rings=8)
+        builder.add_uv_sphere(f"{prefix}_Ear_R", (-0.04, 3.34, 0.31), (0.14, 0.20, 0.11), skin, segments=12, rings=8)
+        add_eye_pair(builder, prefix, eyes, glint, x=-0.40, y=3.08, z_center=0.10, spacing=0.13)
+        add_animal_neck(builder, prefix, skin, strap)
+        return
+
+    if variant == "crocodile":
+        skin = builder.material("Crocodile green scales", (0.18, 0.26, 0.10, 1.0), roughness=0.78)
+        light_skin = builder.material("Crocodile jaw scales", (0.42, 0.38, 0.16, 1.0), roughness=0.72)
+        dark = builder.material("Crocodile eye and nostril", (0.018, 0.022, 0.012, 1.0), roughness=0.30)
+        tooth = builder.material("Crocodile teeth", (0.90, 0.82, 0.52, 1.0), roughness=0.58)
+        eyes = builder.material("Crocodile eyes", (0.56, 0.42, 0.08, 1.0), roughness=0.24)
+        builder.add_uv_sphere(f"{prefix}_HeadFace", (-0.05, 2.95, 0.08), (0.49, 0.41, 0.33), skin, segments=18, rings=12)
+        builder.add_beak(f"{prefix}_Snout", (-0.26, 2.86, 0.15), 0.70, 0.38, 0.24, light_skin)
+        builder.add_uv_sphere(f"{prefix}_Jaw", (-0.47, 2.73, 0.14), (0.31, 0.16, 0.25), light_skin, segments=16, rings=9)
+        for side, z in (("L", 0.02), ("R", 0.28)):
+            builder.add_uv_sphere(f"{prefix}_Nostril_{side}", (-0.88, 2.91, z), (0.035, 0.025, 0.030), dark, segments=8, rings=5)
+        for index, z in enumerate((0.00, 0.11, 0.22, 0.33)):
+            builder.add_cylinder(f"{prefix}_Tooth_{index}", (-0.54, 2.76, z), (-0.54, 2.68, z), 0.018, 0.004, tooth, segments=8)
+        builder.add_uv_sphere(f"{prefix}_Ear_L", (-0.02, 3.24, -0.25), (0.10, 0.12, 0.08), skin, segments=10, rings=7)
+        builder.add_uv_sphere(f"{prefix}_Ear_R", (-0.02, 3.24, 0.31), (0.10, 0.12, 0.08), skin, segments=10, rings=7)
+        add_eye_pair(builder, prefix, eyes, glint, x=-0.39, y=3.12, z_center=0.10, spacing=0.14)
+        add_animal_neck(builder, prefix, skin, strap)
+        return
+
+    if variant == "gorilla":
+        fur = builder.material("Gorilla charcoal fur", (0.055, 0.050, 0.045, 1.0), roughness=0.86)
+        muzzle = builder.material("Gorilla muzzle", (0.22, 0.18, 0.16, 1.0), roughness=0.74)
+        nose = builder.material("Gorilla nose", (0.035, 0.028, 0.025, 1.0), roughness=0.40)
+        eyes = builder.material("Gorilla eyes", (0.18, 0.10, 0.045, 1.0), roughness=0.25)
+        builder.add_uv_sphere(f"{prefix}_HeadFace", (-0.08, 2.94, 0.08), (0.50, 0.49, 0.36), fur, segments=18, rings=12)
+        builder.add_uv_sphere(f"{prefix}_Brow", (-0.38, 3.10, 0.12), (0.24, 0.13, 0.23), fur, segments=14, rings=8)
+        builder.add_uv_sphere(f"{prefix}_Muzzle", (-0.44, 2.79, 0.16), (0.29, 0.24, 0.24), muzzle, segments=16, rings=9)
+        builder.add_uv_sphere(f"{prefix}_Nose", (-0.67, 2.86, 0.18), (0.095, 0.075, 0.09), nose, segments=12, rings=8)
+        builder.add_uv_sphere(f"{prefix}_Ear_L", (-0.04, 3.18, -0.31), (0.11, 0.15, 0.08), muzzle, segments=10, rings=7)
+        builder.add_uv_sphere(f"{prefix}_Ear_R", (-0.04, 3.18, 0.35), (0.11, 0.15, 0.08), muzzle, segments=10, rings=7)
+        add_eye_pair(builder, prefix, eyes, glint, x=-0.43, y=3.08, z_center=0.10, spacing=0.14)
+        add_animal_neck(builder, prefix, fur, strap)
+        return
+
+    if variant == "bear":
+        fur = builder.material("Bear brown fur", (0.32, 0.16, 0.055, 1.0), roughness=0.78)
+        muzzle = builder.material("Bear muzzle", (0.60, 0.38, 0.18, 1.0), roughness=0.70)
+        nose = builder.material("Bear nose", (0.045, 0.028, 0.020, 1.0), roughness=0.36)
+        eyes = builder.material("Bear eyes", (0.14, 0.075, 0.025, 1.0), roughness=0.24)
+        builder.add_uv_sphere(f"{prefix}_HeadFace", (-0.08, 2.94, 0.08), (0.50, 0.48, 0.35), fur, segments=18, rings=12)
+        builder.add_uv_sphere(f"{prefix}_Muzzle", (-0.45, 2.80, 0.20), (0.25, 0.20, 0.22), muzzle, segments=16, rings=9)
+        builder.add_uv_sphere(f"{prefix}_Nose", (-0.66, 2.84, 0.22), (0.09, 0.07, 0.08), nose, segments=12, rings=8)
+        builder.add_uv_sphere(f"{prefix}_Ear_L", (-0.08, 3.28, -0.26), (0.17, 0.18, 0.13), fur, segments=12, rings=8)
+        builder.add_uv_sphere(f"{prefix}_Ear_R", (-0.08, 3.28, 0.31), (0.17, 0.18, 0.13), fur, segments=12, rings=8)
+        add_eye_pair(builder, prefix, eyes, glint, x=-0.43, y=3.06, z_center=0.10, spacing=0.14)
+        add_animal_neck(builder, prefix, fur, strap)
+        return
+
+    if variant == "hippopotamus":
+        skin = builder.material("Hippopotamus purple gray skin", (0.34, 0.25, 0.27, 1.0), roughness=0.78)
+        muzzle = builder.material("Hippopotamus muzzle", (0.47, 0.34, 0.35, 1.0), roughness=0.74)
+        nostril = builder.material("Hippopotamus nostrils", (0.075, 0.045, 0.055, 1.0), roughness=0.42)
+        eyes = builder.material("Hippopotamus eyes", (0.16, 0.09, 0.075, 1.0), roughness=0.25)
+        builder.add_uv_sphere(f"{prefix}_HeadFace", (-0.06, 2.94, 0.08), (0.55, 0.46, 0.38), skin, segments=18, rings=12)
+        builder.add_uv_sphere(f"{prefix}_Muzzle", (-0.48, 2.78, 0.20), (0.38, 0.27, 0.31), muzzle, segments=18, rings=10)
+        for side, z in (("L", 0.02), ("R", 0.28)):
+            builder.add_uv_sphere(f"{prefix}_Nostril_{side}", (-0.70, 2.93, z), (0.045, 0.030, 0.040), nostril, segments=10, rings=6)
+        builder.add_uv_sphere(f"{prefix}_Ear_L", (-0.03, 3.30, -0.26), (0.12, 0.16, 0.10), skin, segments=10, rings=7)
+        builder.add_uv_sphere(f"{prefix}_Ear_R", (-0.03, 3.30, 0.32), (0.12, 0.16, 0.10), skin, segments=10, rings=7)
+        add_eye_pair(builder, prefix, eyes, glint, x=-0.39, y=3.10, z_center=0.10, spacing=0.17)
+        add_animal_neck(builder, prefix, skin, strap)
+        return
+
+    raise ValueError(f"unknown animal variant: {variant}")
 
 
 def quaternion_axis(axis: Vec3, angle: float) -> tuple[float, float, float, float]:
@@ -501,16 +685,29 @@ def add_animation_accessor(
     return builder._accessor(view, 5126, count, accessor_type)
 
 
+ANIMAL_HEAD_PREFIXES = ("lion", "rhinoceros", "crocodile", "gorilla", "bear", "hippopotamus")
+
+
+def is_animal_head_mesh(lower_name: str) -> bool:
+    return any(lower_name.startswith(f"{prefix}_") for prefix in ANIMAL_HEAD_PREFIXES)
+
+
+def head_bone_name(lower_name: str) -> str:
+    if "clavicle" in lower_name:
+        return "chest"
+    if "throat" in lower_name or "neck" in lower_name:
+        return "neck"
+    return "head"
+
+
 def mesh_bone_name(mesh_name: str) -> str:
     lower = mesh_name.lower()
     if lower.startswith("wing_"):
         return "wing.R"
     if "goosemask" in lower:
-        if "throat" in lower:
-            return "neck"
-        if "clavicle" in lower:
-            return "chest"
-        return "head"
+        return head_bone_name(lower)
+    if is_animal_head_mesh(lower):
+        return head_bone_name(lower)
     if "heart" in lower or "chest" in lower or "pectoral" in lower:
         return "chest"
     if "torso" in lower or "abdomen" in lower:
@@ -550,10 +747,10 @@ def smooth_candidate_bones(mesh_name: str) -> list[str]:
     lower = mesh_name.lower()
     if lower.startswith("wing_"):
         return ["chest", "wing.R"]
-    if "goosemask" in lower:
+    if "goosemask" in lower or is_animal_head_mesh(lower):
         if "clavicle" in lower:
             return ["chest", "neck"]
-        if "throat" in lower:
+        if "throat" in lower or "neck" in lower:
             return ["chest", "neck", "head"]
         return ["neck", "head"]
     if "heart" in lower or "chest" in lower or "pectoral" in lower:
@@ -659,7 +856,7 @@ def add_fighter_rig(builder: GLBBuilder, *, smooth: bool = False) -> None:
     skin_index = len(builder.skins)
     builder.skins.append(
         {
-            "name": "GooseHeartFighterRig",
+            "name": "HeartChampionFighterRig",
             "joints": joints,
             "inverseBindMatrices": inverse_bind_accessor,
             "skeleton": bone_indices["root"],
@@ -771,7 +968,10 @@ def add_fighter_rig(builder: GLBBuilder, *, smooth: bool = False) -> None:
     builder.scene_nodes = list(range(mesh_node_count)) + [bone_indices["root"]]
 
 
-def build_model() -> GLBBuilder:
+def build_model(variant: str = "goose") -> GLBBuilder:
+    variant = variant.lower()
+    if variant != "goose" and variant not in ANIMAL_HEAD_PREFIXES:
+        raise ValueError(f"unknown model variant: {variant}")
     builder = GLBBuilder()
     gold = builder.material("Golden skin", (0.95, 0.48, 0.035, 1.0), roughness=0.38)
     gold_dark = builder.material("Golden shadow", (0.66, 0.22, 0.012, 1.0), roughness=0.48)
@@ -828,15 +1028,18 @@ def build_model() -> GLBBuilder:
         builder.add_cylinder(f"{label}_Calf", knee, ankle, 0.21, 0.15, gold)
         builder.add_uv_sphere(f"{label}_Foot", (ankle[0], 0.09, 0.22), (0.27, 0.11, 0.43), gold)
 
-    # Realistic-looking goose mask and the white section reaching the clavicles.
-    builder.add_uv_sphere("GooseMaskFace", (-0.15, 2.88, 0.10), (0.43, 0.43, 0.32), mask_white, segments=18, rings=12)
-    builder.add_beak("GooseMaskBeak", (-0.42, 2.83, 0.16), 0.48, 0.28, 0.20, beak_orange)
-    builder.add_uv_sphere("GooseMaskNostril", (-0.74, 2.89, 0.27), (0.045, 0.022, 0.025), eye_black, segments=10, rings=6)
-    builder.add_uv_sphere("GooseMaskEyeOpening", (-0.39, 3.01, 0.35), (0.095, 0.105, 0.028), eye_black, segments=12, rings=8)
-    builder.add_uv_sphere("GooseMaskEyeGlint", (-0.405, 3.035, 0.375), (0.020, 0.020, 0.010), eye_glint, segments=8, rings=5)
-    builder.add_cylinder("GooseMaskThroat", (0.0, 2.12, 0.02), (-0.12, 2.62, 0.06), 0.32, 0.27, mask_white, segments=14)
-    builder.add_uv_sphere("GooseMaskClaviclePlate", (-0.02, 2.14, 0.04), (0.52, 0.14, 0.27), mask_white, segments=16, rings=8)
-    builder.add_cylinder("GooseMaskSideStrap", (0.23, 2.78, -0.12), (0.34, 2.78, 0.12), 0.045, 0.045, strap_black, segments=8)
+    if variant == "goose":
+        # Realistic-looking goose mask and the white section reaching the clavicles.
+        builder.add_uv_sphere("GooseMaskFace", (-0.15, 2.88, 0.10), (0.43, 0.43, 0.32), mask_white, segments=18, rings=12)
+        builder.add_beak("GooseMaskBeak", (-0.42, 2.83, 0.16), 0.48, 0.28, 0.20, beak_orange)
+        builder.add_uv_sphere("GooseMaskNostril", (-0.74, 2.89, 0.27), (0.045, 0.022, 0.025), eye_black, segments=10, rings=6)
+        builder.add_uv_sphere("GooseMaskEyeOpening", (-0.39, 3.01, 0.35), (0.095, 0.105, 0.028), eye_black, segments=12, rings=8)
+        builder.add_uv_sphere("GooseMaskEyeGlint", (-0.405, 3.035, 0.375), (0.020, 0.020, 0.010), eye_glint, segments=8, rings=5)
+        builder.add_cylinder("GooseMaskThroat", (0.0, 2.12, 0.02), (-0.12, 2.62, 0.06), 0.32, 0.27, mask_white, segments=14)
+        builder.add_uv_sphere("GooseMaskClaviclePlate", (-0.02, 2.14, 0.04), (0.52, 0.14, 0.27), mask_white, segments=16, rings=8)
+        builder.add_cylinder("GooseMaskSideStrap", (0.23, 2.78, -0.12), (0.34, 2.78, 0.12), 0.045, 0.045, strap_black, segments=8)
+    else:
+        add_animal_head(builder, variant)
 
     # One pale blue-white wing behind the right shoulder.
     feather_specs = [
@@ -872,20 +1075,24 @@ def build_model() -> GLBBuilder:
 
 
 def main() -> None:
-    character_dir = Path(__file__).with_name("assets") / "characters"
-    variants = (
-        (character_dir / "goose-heart-champion.glb", False),
-        (character_dir / "goose-heart-champion-smooth.glb", True),
-    )
-    for output, smooth in variants:
-        builder = build_model()
-        add_fighter_rig(builder, smooth=smooth)
-        builder.save(output)
-        print(
-            f"wrote {output} ({output.stat().st_size} bytes, "
-            f"{len(builder.nodes)} nodes, {len(builder.skins)} skin, "
-            f"{len(builder.animations)} animations, smooth={smooth})"
-        )
+    script_dir = Path(__file__).resolve().parent
+    repo_root = script_dir if (script_dir / "assets").is_dir() else script_dir.parent
+    character_dir = repo_root / "assets" / "characters"
+    variants = ("goose",) + ANIMAL_HEAD_PREFIXES
+    for variant in variants:
+        model_stem = f"{variant}-heart-champion"
+        scene_name = f"{variant.title()}HeartChampion"
+        for smooth in (False, True):
+            suffix = "-smooth" if smooth else ""
+            output = character_dir / f"{model_stem}{suffix}.glb"
+            builder = build_model(variant)
+            add_fighter_rig(builder, smooth=smooth)
+            builder.save(output, model_name=f"{model_stem}{suffix}", scene_name=scene_name)
+            print(
+                f"wrote {output} ({output.stat().st_size} bytes, "
+                f"{len(builder.nodes)} nodes, {len(builder.skins)} skin, "
+                f"{len(builder.animations)} animations, variant={variant}, smooth={smooth})"
+            )
 
 
 if __name__ == "__main__":
