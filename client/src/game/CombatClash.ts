@@ -1,0 +1,10 @@
+export const ATTACK_CLASH_PROGRESS_MIN = 0.4;
+export const ATTACK_CLASH_PROGRESS_MAX = 0.68;
+
+export function isAttackClashWindow(progress: number) {
+  return progress >= ATTACK_CLASH_PROGRESS_MIN && progress <= ATTACK_CLASH_PROGRESS_MAX;
+}
+
+export function clampAttackClashPan(value: number) {
+  return Math.max(-1, Math.min(1, value));
+}
