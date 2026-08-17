@@ -10,10 +10,133 @@ from __future__ import annotations
 import json
 import math
 import struct
+import zlib
 from pathlib import Path
 
 
 Vec3 = tuple[float, float, float]
+
+_TEXTURE_SIZE = 128
+
+
+def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
+    return max(low, min(high, value))
+
+
+def _hash_noise(x: int, y: int, seed: int) -> float:
+    value = (x * 374761393 + y * 668265263 + seed * 1442695041) & 0xFFFFFFFF
+    value = ((value ^ (value >> 13)) * 1274126177) & 0xFFFFFFFF
+    value = (value ^ (value >> 16)) & 0xFFFFFFFF
+    return value / 0xFFFFFFFF
+
+
+def _surface_height(family: str, x: int, y: int, size: int) -> float:
+    seed = sum(ord(char) for char in family)
+    coarse = _hash_noise(x // 8, y // 8, seed)
+    medium = _hash_noise(x // 3, y // 3, seed + 17)
+    fine = _hash_noise(x, y, seed + 31)
+    if family == "feather":
+        wave = 0.5 + 0.5 * math.sin(x * 0.15 + y * 0.035 + seed)
+    elif family == "poop":
+        wave = 0.5 + 0.5 * math.sin(y * 0.22 + math.sin(x * 0.08) * 2.0)
+    elif family == "heart":
+        wave = 0.5 + 0.5 * math.sin(x * 0.11 - y * 0.07)
+    else:
+        wave = 0.5 + 0.5 * math.sin(x * 0.08 + y * 0.12 + seed * 0.03)
+    detail = 0.54 * coarse + 0.28 * medium + 0.18 * fine
+    return _clamp(0.34 + 0.42 * detail + 0.24 * wave)
+
+
+def _png_chunk(kind: bytes, payload: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(payload))
+        + kind
+        + payload
+        + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
+    )
+
+
+def _encode_png_rgba(width: int, height: int, pixels: bytes) -> bytes:
+    rows = bytearray()
+    stride = width * 4
+    for row in range(height):
+        rows.append(0)
+        start = row * stride
+        rows.extend(pixels[start : start + stride])
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", header)
+        + _png_chunk(b"IDAT", zlib.compress(bytes(rows), level=9))
+        + _png_chunk(b"IEND", b"")
+    )
+
+
+def _make_surface_texture(family: str, *, normal: bool = False) -> bytes:
+    size = _TEXTURE_SIZE
+    heights = [
+        _surface_height(family, x, y, size)
+        for y in range(size)
+        for x in range(size)
+    ]
+    pixels = bytearray()
+    if normal:
+        for y in range(size):
+            for x in range(size):
+                dx = heights[y * size + ((x + 1) % size)] - heights[y * size + ((x - 1) % size)]
+                dy = heights[((y + 1) % size) * size + x] - heights[((y - 1) % size) * size + x]
+                normal_vector = normalize((-dx * 3.4, -dy * 3.4, 1.0))
+                pixels.extend(
+                    (
+                        int(_clamp(normal_vector[0] * 0.5 + 0.5) * 255),
+                        int(_clamp(normal_vector[1] * 0.5 + 0.5) * 255),
+                        int(_clamp(normal_vector[2] * 0.5 + 0.5) * 255),
+                        255,
+                    )
+                )
+    else:
+        tint = {
+            "gold": (1.00, 0.94, 0.82),
+            "feather": (0.92, 0.98, 1.00),
+            "heart": (1.00, 0.84, 0.84),
+            "heart_blue": (0.84, 0.91, 1.00),
+            "poop": (0.92, 0.82, 0.70),
+            "beak": (1.00, 0.86, 0.72),
+            "eye": (0.94, 0.96, 1.00),
+        }.get(family, (1.0, 1.0, 1.0))
+        for y in range(size):
+            for x in range(size):
+                height = heights[y * size + x]
+                micro = 0.94 + 0.06 * _hash_noise(x * 2, y * 2, 97)
+                value = (0.73 + 0.27 * height) * micro
+                pixels.extend(
+                    (
+                        int(_clamp(value * tint[0]) * 255),
+                        int(_clamp(value * tint[1]) * 255),
+                        int(_clamp(value * tint[2]) * 255),
+                        255,
+                    )
+                )
+    return _encode_png_rgba(size, size, bytes(pixels))
+
+
+def _texture_family(material_name: str) -> str | None:
+    name = material_name.lower()
+    if "poop" in name:
+        return "poop"
+    if "wing" in name or "feather" in name:
+        return "feather"
+    if "blue vessel" in name or "vessel" in name:
+        return "heart_blue"
+    if "heart" in name or "tissue" in name or "cavity" in name:
+        return "heart"
+    if "beak" in name or "bill" in name:
+        return "beak"
+    if "eye" in name or "pupil" in name or "iris" in name or "sclera" in name:
+        return "eye"
+    if "gold" in name or "skin" in name:
+        return "gold"
+    return None
 
 
 def add(a: Vec3, b: Vec3) -> Vec3:
@@ -64,7 +187,7 @@ def average_normals(vertices: list[Vec3], indices: list[int]) -> list[Vec3]:
 
 
 class GLBBuilder:
-    def __init__(self) -> None:
+    def __init__(self, *, detail_textures: bool = False) -> None:
         self.binary = bytearray()
         self.buffer_views: list[dict] = []
         self.accessors: list[dict] = []
@@ -76,6 +199,10 @@ class GLBBuilder:
         self.animations: list[dict] = []
         self.scene_nodes: list[int] | None = None
         self.material_lookup: dict[str, int] = {}
+        self.detail_textures_enabled = detail_textures
+        self.images: list[dict] = []
+        self.textures: list[dict] = []
+        self.texture_lookup: dict[str, tuple[int, int]] = {}
 
     def material(
         self,
@@ -90,18 +217,47 @@ class GLBBuilder:
             return self.material_lookup[name]
         index = len(self.materials)
         self.material_lookup[name] = index
-        self.materials.append(
-            {
-                "name": name,
-                "doubleSided": double_sided,
-                "pbrMetallicRoughness": {
-                    "baseColorFactor": list(color),
-                    "metallicFactor": metallic,
-                    "roughnessFactor": roughness,
-                },
-            }
-        )
+        material = {
+            "name": name,
+            "doubleSided": double_sided,
+            "pbrMetallicRoughness": {
+                "baseColorFactor": list(color),
+                "metallicFactor": metallic,
+                "roughnessFactor": roughness,
+            },
+        }
+        if self.detail_textures_enabled:
+            family = _texture_family(name)
+            if family is not None:
+                color_texture, normal_texture = self._ensure_texture_pair(family)
+                material["pbrMetallicRoughness"]["baseColorTexture"] = {"index": color_texture}
+                material["normalTexture"] = {"index": normal_texture, "scale": 0.30}
+                material["extras"] = {"surfaceTexture": family, "textureResolution": _TEXTURE_SIZE}
+        self.materials.append(material)
         return index
+
+    def _ensure_texture_pair(self, family: str) -> tuple[int, int]:
+        if family in self.texture_lookup:
+            return self.texture_lookup[family]
+        texture_indices: list[int] = []
+        for normal in (False, True):
+            image_bytes = _make_surface_texture(family, normal=normal)
+            offset, size = self._append_bytes(image_bytes)
+            view = self._view(offset, size)
+            image_index = len(self.images)
+            suffix = "normal" if normal else "color"
+            self.images.append(
+                {
+                    "name": f"{family}-{suffix}-{_TEXTURE_SIZE}px.png",
+                    "bufferView": view,
+                    "mimeType": "image/png",
+                }
+            )
+            texture_indices.append(len(self.textures))
+            self.textures.append({"sampler": 0, "source": image_index})
+        pair = (texture_indices[0], texture_indices[1])
+        self.texture_lookup[family] = pair
+        return pair
 
     def _append_bytes(self, data: bytes, alignment: int = 4) -> tuple[int, int]:
         while len(self.binary) % alignment:
@@ -183,6 +339,36 @@ class GLBBuilder:
         )
         normal_accessor = self._accessor(normal_view, 5126, len(vertices), "VEC3")
         index_accessor = self._accessor(index_view, index_component, len(indices), "SCALAR")
+        attributes = {
+            "POSITION": position_accessor,
+            "NORMAL": normal_accessor,
+        }
+        material_data = self.materials[material_index]
+        if "pbrMetallicRoughness" in material_data and "baseColorTexture" in material_data["pbrMetallicRoughness"]:
+            family = material_data.get("extras", {}).get("surfaceTexture", "")
+            min_x, max_x = min(vertex[0] for vertex in vertices), max(vertex[0] for vertex in vertices)
+            min_y, max_y = min(vertex[1] for vertex in vertices), max(vertex[1] for vertex in vertices)
+            min_z, max_z = min(vertex[2] for vertex in vertices), max(vertex[2] for vertex in vertices)
+            x_range = max(max_x - min_x, 1e-5)
+            y_range = max(max_y - min_y, 1e-5)
+            z_range = max(max_z - min_z, 1e-5)
+            if family == "feather":
+                uvs = [((vertex[0] - min_x) / x_range, (vertex[1] - min_y) / y_range) for vertex in vertices]
+            else:
+                center_x = (min_x + max_x) * 0.5
+                center_z = (min_z + max_z) * 0.5
+                uvs = [
+                    (
+                        (math.atan2(vertex[2] - center_z, vertex[0] - center_x) / math.tau + 0.5) % 1.0,
+                        (vertex[1] - min_y) / y_range,
+                    )
+                    for vertex in vertices
+                ]
+            uv_bytes = b"".join(struct.pack("<2f", u, v) for u, v in uvs)
+            uv_offset, uv_size = self._append_bytes(uv_bytes)
+            uv_view = self._view(uv_offset, uv_size, 34962)
+            uv_accessor = self._accessor(uv_view, 5126, len(uvs), "VEC2", minimum=[0.0, 0.0], maximum=[1.0, 1.0])
+            attributes["TEXCOORD_0"] = uv_accessor
         mesh_index = len(self.meshes)
         self.mesh_vertices.append(vertices)
         self.meshes.append(
@@ -190,10 +376,7 @@ class GLBBuilder:
                 "name": name,
                 "primitives": [
                     {
-                        "attributes": {
-                            "POSITION": position_accessor,
-                            "NORMAL": normal_accessor,
-                        },
+                        "attributes": attributes,
                         "indices": index_accessor,
                         "material": material_index,
                         "mode": 4,
@@ -447,6 +630,17 @@ class GLBBuilder:
             gltf["skins"] = self.skins
         if self.animations:
             gltf["animations"] = self.animations
+        if self.textures:
+            gltf["samplers"] = [
+                {
+                    "magFilter": 9729,
+                    "minFilter": 9729,
+                    "wrapS": 10497,
+                    "wrapT": 10497,
+                }
+            ]
+            gltf["images"] = self.images
+            gltf["textures"] = self.textures
         json_bytes = json.dumps(gltf, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         while len(json_bytes) % 4:
             json_bytes += b" "
@@ -1407,7 +1601,7 @@ def build_model(variant: str = "goose") -> GLBBuilder:
     variant = variant.lower()
     if variant not in ("goose",) + ANIMAL_HEAD_PREFIXES + COMMON_HEAD_PREFIXES:
         raise ValueError(f"unknown model variant: {variant}")
-    builder = GLBBuilder()
+    builder = GLBBuilder(detail_textures=variant in ("goose", "poop"))
     gold = builder.material("Golden skin", (0.95, 0.48, 0.035, 1.0), roughness=0.38)
     gold_dark = builder.material("Golden shadow", (0.66, 0.22, 0.012, 1.0), roughness=0.48)
     # Keep the legacy unused materials only in the six animal files so those
