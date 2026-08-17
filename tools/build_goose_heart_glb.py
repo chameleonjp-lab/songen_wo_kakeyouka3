@@ -581,6 +581,64 @@ def add_goose_neck_feathers(
         )
 
 
+def add_poop_head(
+    builder: GLBBuilder,
+    dark_material: int,
+    mid_material: int,
+    light_material: int,
+) -> None:
+    """Add the shared expressionless three-tier glossy poop-head design."""
+    builder.add_uv_sphere(
+        "PoopHeadBase",
+        (0.0, 2.29, 0.10),
+        (0.43, 0.20, 0.30),
+        dark_material,
+        segments=20,
+        rings=12,
+    )
+    builder.add_uv_sphere(
+        "PoopHeadMiddle",
+        (0.02, 2.50, 0.10),
+        (0.35, 0.18, 0.27),
+        mid_material,
+        segments=20,
+        rings=12,
+    )
+    builder.add_uv_sphere(
+        "PoopHeadUpper",
+        (-0.02, 2.69, 0.10),
+        (0.27, 0.16, 0.23),
+        light_material,
+        segments=18,
+        rings=11,
+    )
+    builder.add_uv_sphere(
+        "PoopHeadCrown",
+        (-0.08, 2.84, 0.10),
+        (0.15, 0.14, 0.15),
+        mid_material,
+        segments=16,
+        rings=10,
+    )
+    builder.add_cylinder(
+        "PoopHeadCurl",
+        (-0.08, 2.91, 0.10),
+        (-0.16, 3.06, 0.10),
+        0.095,
+        0.035,
+        dark_material,
+        segments=16,
+    )
+    builder.add_uv_sphere(
+        "PoopHeadCurlTip",
+        (-0.16, 3.07, 0.10),
+        (0.045, 0.055, 0.045),
+        light_material,
+        segments=12,
+        rings=8,
+    )
+
+
 def add_animal_neck(
     builder: GLBBuilder,
     prefix: str,
@@ -776,6 +834,7 @@ def add_animation_accessor(
 
 
 ANIMAL_HEAD_PREFIXES = ("lion", "rhinoceros", "crocodile", "gorilla", "bear", "hippopotamus")
+COMMON_HEAD_PREFIXES = ("poop",)
 
 
 def is_animal_head_mesh(lower_name: str) -> bool:
@@ -794,6 +853,8 @@ def mesh_bone_name(mesh_name: str) -> str:
     lower = mesh_name.lower()
     if lower.startswith("wing_"):
         return "wing.R"
+    if "poop" in lower:
+        return "head"
     if "goose" in lower:
         return head_bone_name(lower)
     if is_animal_head_mesh(lower):
@@ -837,6 +898,8 @@ def smooth_candidate_bones(mesh_name: str) -> list[str]:
     lower = mesh_name.lower()
     if lower.startswith("wing_"):
         return ["chest", "wing.R"]
+    if "poop" in lower:
+        return ["neck", "head"]
     if "goose" in lower or is_animal_head_mesh(lower):
         if "clavicle" in lower:
             return ["chest", "neck"]
@@ -1342,18 +1405,19 @@ def add_fighter_rig(builder: GLBBuilder, *, smooth: bool = False) -> None:
 
 def build_model(variant: str = "goose") -> GLBBuilder:
     variant = variant.lower()
-    if variant != "goose" and variant not in ANIMAL_HEAD_PREFIXES:
+    if variant not in ("goose",) + ANIMAL_HEAD_PREFIXES + COMMON_HEAD_PREFIXES:
         raise ValueError(f"unknown model variant: {variant}")
     builder = GLBBuilder()
     gold = builder.material("Golden skin", (0.95, 0.48, 0.035, 1.0), roughness=0.38)
     gold_dark = builder.material("Golden shadow", (0.66, 0.22, 0.012, 1.0), roughness=0.48)
-    # Keep the legacy unused materials in non-goose files so the six animal
-    # variants remain byte-compatible apart from intentional goose changes.
-    if variant != "goose":
+    # Keep the legacy unused materials only in the six animal files so those
+    # existing variants remain byte-compatible. Goose and common-head files
+    # use their own material sets below.
+    if variant not in ("goose",) + COMMON_HEAD_PREFIXES:
         builder.material("Goose mask white", (0.92, 0.95, 0.96, 1.0), roughness=0.38)
     wing_white = builder.material("Wing white", (0.88, 0.96, 1.0, 1.0), roughness=0.36, double_sided=True)
     wing_blue = builder.material("Wing pale blue", (0.58, 0.80, 0.96, 1.0), roughness=0.40, double_sided=True)
-    if variant != "goose":
+    if variant not in ("goose",) + COMMON_HEAD_PREFIXES:
         builder.material("Goose beak orange", (1.0, 0.30, 0.035, 1.0), roughness=0.34)
         builder.material("Mask eye opening", (0.004, 0.006, 0.009, 1.0), roughness=0.22)
         builder.material("Mask strap", (0.025, 0.028, 0.035, 1.0), roughness=0.42)
@@ -1564,6 +1628,23 @@ def build_model(variant: str = "goose") -> GLBBuilder:
             goose_feather,
             goose_feather_shadow,
         )
+    elif variant == "poop":
+        poop_dark = builder.material(
+            "Poop glossy dark brown",
+            (0.16, 0.045, 0.018, 1.0),
+            roughness=0.24,
+        )
+        poop_mid = builder.material(
+            "Poop glossy brown",
+            (0.29, 0.085, 0.030, 1.0),
+            roughness=0.21,
+        )
+        poop_light = builder.material(
+            "Poop glossy highlight brown",
+            (0.42, 0.14, 0.055, 1.0),
+            roughness=0.19,
+        )
+        add_poop_head(builder, poop_dark, poop_mid, poop_light)
     else:
         add_animal_head(builder, variant)
 
@@ -1604,7 +1685,7 @@ def main() -> None:
     script_dir = Path(__file__).resolve().parent
     repo_root = script_dir if (script_dir / "assets").is_dir() else script_dir.parent
     character_dir = repo_root / "assets" / "characters"
-    variants = ("goose",) + ANIMAL_HEAD_PREFIXES
+    variants = ("goose",) + ANIMAL_HEAD_PREFIXES + COMMON_HEAD_PREFIXES
     for variant in variants:
         model_stem = f"{variant}-heart-champion"
         scene_name = f"{variant.title()}HeartChampion"
