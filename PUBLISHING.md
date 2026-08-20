@@ -37,7 +37,7 @@ CIは成果物を公開しません。失敗時はPagesデプロイも通さな�
 
 - CIのcheck／test／GLB監査／buildが同一commitで成功している
 - artifactに `dist/public` 以外（サーバーbundle、環境変数、秘密情報）が入っていない
-- favicon、画像、全16 GLBのHTTP 200と相対URLを確認する
+- favicon、画像、runtime用smooth 8 GLBのHTTP 200と相対URLを確認する。regular 8 GLBは原本監査用でPagesへは配信しない
 - PC横画面、iPhone Safari縦画面、名前入力、初回遅延ロード、ページ再読込を確認する
 - 素材の権利・クレジットをコードのMIT表記とは別に確認する
 

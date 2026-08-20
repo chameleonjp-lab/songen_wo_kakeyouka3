@@ -19,6 +19,16 @@ def glbs(directory: Path) -> dict[str, Path]:
     return {path.name: path for path in sorted(directory.glob("*.glb"))}
 
 
+def runtime_glbs(directory: Path) -> dict[str, Path]:
+    """Return only the smooth variants shipped to the browser.
+
+    The regular variants remain in ``assets/characters`` for the full GLB audit
+    and a possible future low-cost setting, but they are not runtime inputs.
+    Keeping them out of ``client/public`` avoids doubling the Pages payload.
+    """
+    return {name: path for name, path in glbs(directory).items() if name.endswith("-smooth.glb")}
+
+
 def digest(path: Path) -> str:
     checksum = hashlib.sha256()
     with path.open("rb") as handle:
@@ -29,15 +39,16 @@ def digest(path: Path) -> str:
 
 def verify() -> bool:
     source = glbs(SOURCE)
+    runtime_source = runtime_glbs(SOURCE)
     public = glbs(PUBLIC)
     errors: list[str] = []
 
-    for missing in sorted(source.keys() - public.keys()):
+    for missing in sorted(runtime_source.keys() - public.keys()):
         errors.append(f"public copy missing: {missing}")
-    for extra in sorted(public.keys() - source.keys()):
-        errors.append(f"public-only GLB: {extra}")
-    for name in sorted(source.keys() & public.keys()):
-        source_path = source[name]
+    for extra in sorted(public.keys() - runtime_source.keys()):
+        errors.append(f"non-runtime GLB in public: {extra}")
+    for name in sorted(runtime_source.keys() & public.keys()):
+        source_path = runtime_source[name]
         public_path = public[name]
         if source_path.stat().st_size != public_path.stat().st_size:
             errors.append(f"size mismatch: {name}")
@@ -49,13 +60,13 @@ def verify() -> bool:
             print(f"ERROR {error}", file=sys.stderr)
         return False
 
-    print(f"PASS {len(source)} source GLBs exactly match public copies")
+    print(f"PASS {len(runtime_source)} smooth runtime GLBs exactly match public copies; {len(source) - len(runtime_source)} regular audit-only GLBs stay out of public")
     return True
 
 
 def synchronize() -> None:
     PUBLIC.mkdir(parents=True, exist_ok=True)
-    source = glbs(SOURCE)
+    source = runtime_glbs(SOURCE)
     for name, path in glbs(PUBLIC).items():
         if name not in source:
             path.unlink()

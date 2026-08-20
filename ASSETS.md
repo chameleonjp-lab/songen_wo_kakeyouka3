@@ -26,7 +26,7 @@
 | Rhinoceros | `rhinoceros-heart-champion.glb` | `rhinoceros-heart-champion-smooth.glb` | 6戦目 |
 | Poop head | `poop-heart-champion.glb` | `poop-heart-champion-smooth.glb` | 尊厳0時のプレイヤー変身用 |
 
-実行時のレジストリは全種類で `-smooth.glb` を選択します。通常版も監査対象かつ将来の軽量設定用に保持しています。GLBがロードできない場合、該当キャラクターの手続きBabylonメッシュを表示します。
+実行時のレジストリは全種類で `-smooth.glb` を選択します。通常版は実GLB監査と将来の軽量設定用に原本ディレクトリへ保持しますが、現在のランタイムでは不要なため `client/public` へはコピーしません。これによりGitHub Pagesへ同じ形状の通常版を重複配信せず、GLB読み込み量を抑えます。GLBがロードできない場合、該当キャラクターの手続きBabylonメッシュを表示します。
 
 ## 監査済みの事実
 
@@ -43,7 +43,7 @@
 
 ## 原本と公開コピー
 
-`assets/characters/` をGLBの原本、`client/public/assets/characters/` をViteが配信する生成コピーとして扱います。手動更新による片側だけの差分を防ぐため、次のコマンドを用意しています。
+`assets/characters/` を通常版／smooth版を含むGLB原本、`client/public/assets/characters/` をsmooth版だけのVite配信コピーとして扱います。手動更新による片側だけの差分を防ぐため、次のコマンドを用意しています。通常版の完全性は `audit_character_glbs.py` が原本で検査し、公開同期は `sync_character_assets.py` がruntime対象だけを検査します。
 
 ```sh
 python3 tools/sync_character_assets.py --sync

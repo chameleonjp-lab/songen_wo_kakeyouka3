@@ -15,7 +15,7 @@
 ## 中優先度（制約）
 
 - 専用の `Hurt`／`Death`／`Walk` GLB groupは監査済み44クリップにはない。現状は `Guard`／`Idle` または手続きメッシュへfallbackする。専用モーション完成とは書かない。
-- 16 GLBすべてをsmooth版でロードするため、低メモリ端末では初回・次敵プリロードが重くなり得る。regular版切替UIはない。
+- runtimeではsmooth 8 GLBだけを配信・ロードする。regular 8 GLBは原本監査用で、低品質版へ切り替えるUIはまだない。
 - `?demo` は監査のため敵を早期配置し、怒気や入力を自動供給する。本番の開始待機、難易度、無限集団戦を表すモードではない。
 - GitHub Pagesは静的配布であり、Nodeサーバー、認証、DB、オンラインランキング、`rankingSubmission()` の送信先はない。
 - Web Audioの自動再生、iPhoneの振動、localStorageはブラウザ／設定依存。利用できない場合のfallbackは継続プレイを優先する。

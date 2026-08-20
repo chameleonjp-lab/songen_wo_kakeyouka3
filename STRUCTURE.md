@@ -34,7 +34,7 @@ App.tsx
 | `client/src/game/HitLocations.ts` | 頭・胴体・条件付き心臓の判定、ダメージ・尊厳・スコア係数 |
 | `client/src/game/Score.ts` / `GameSession.ts` | 不変のスコア台帳、結果、個人ベスト（端末内） |
 | `client/src/game/CameraRig.ts` / `FixedThirdPersonCamera.ts` | ロックオン中もプレイヤー背後を維持するカメラ制約 |
-| `client/public/assets/` | Pagesでそのまま配信する画像、16 GLB、debug用静的ファイル |
+| `client/public/assets/` | Pagesでそのまま配信する画像、runtime用smooth 8 GLB、debug用静的ファイル（regular版は原本のみ） |
 | `tools/audit_character_glbs.py` | GLBの19骨、44アニメーション、regular/smooth差分の監査 |
 
 ## 状態と境界
