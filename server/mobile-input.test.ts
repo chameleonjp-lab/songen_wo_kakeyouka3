@@ -123,14 +123,14 @@ describe("mobile touch input", () => {
     expect(thrown.trigger("hit")).toBe(false);
   });
 
-  it("keeps attack and guard presses independent and de-duplicates a held action", () => {
+  it("keeps attack taps queued in order while guard remains an independent held action", () => {
     const window = installFakeWindow();
     const input = new InputManager(fakeCanvas());
     window.dispatchEvent(new CustomEvent("arena-touch-action", { detail: { action: "light" } }));
     window.dispatchEvent(new CustomEvent("arena-touch-action", { detail: { action: "light" } }));
     window.dispatchEvent(new CustomEvent("arena-touch-action", { detail: { action: "guard" } }));
     expect(input.consume("light")).toBe(true);
-    expect(input.consume("light")).toBe(false);
+    expect(input.consume("light")).toBe(true);
     expect(input.consume("guard")).toBe(true);
     input.dispose();
   });

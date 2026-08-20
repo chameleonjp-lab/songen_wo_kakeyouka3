@@ -6,9 +6,39 @@ import { Node } from "@babylonjs/core/node";
 import { Scene } from "@babylonjs/core/scene";
 import "@babylonjs/loaders/glTF";
 import { characterAssets, type CharacterKey } from "@/game/assets";
-import { retainOnlyPrepared } from "@/game/CharacterPreloadPlan";
+import { runtimeFlags } from "@/game/RuntimeFlags";
 
 export type CharacterMotion = "idle" | "move" | "guard" | "light" | "heavy" | "counter" | "hurt" | "dead" | "musou";
+
+export const ROOT_MOTION_POLICY = "code-authoritative-in-place" as const;
+
+function cloneAnimationValue<T>(value: T): T {
+  if (value && typeof value === "object" && "clone" in value && typeof value.clone === "function") {
+    return value.clone() as T;
+  }
+  if (Array.isArray(value)) return [...value] as T;
+  return value;
+}
+
+/**
+ * The audited GLBs contain translation and rotation on Root_CTRL. Position is
+ * already advanced by the deterministic combat simulation, so those tracks
+ * are held at their first key to prevent double movement while preserving all
+ * 44 animation groups and the 19-bone skeleton.
+ */
+function makeRootMotionInPlace(groups: AnimationGroup[]) {
+  for (const group of groups) {
+    for (const targeted of group.targetedAnimations) {
+      const targetName = String((targeted.target as { name?: string } | null)?.name ?? "");
+      const property = targeted.animation.targetProperty.toLowerCase();
+      if (!/root(?:_ctrl)?/i.test(targetName) || (!property.includes("position") && !property.includes("rotation"))) continue;
+      const keys = targeted.animation.getKeys();
+      const baseline = keys[0]?.value;
+      if (baseline === undefined) continue;
+      targeted.animation.setKeys(keys.map((key) => ({ ...key, value: cloneAnimationValue(baseline) })));
+    }
+  }
+}
 
 const motionAliases: Record<CharacterMotion, string[]> = {
   idle: ["Idle", "idle", "Standing", "Wait"],
@@ -27,21 +57,32 @@ export class CharacterAnimator {
   private readonly groupsByName: Map<string, AnimationGroup>;
 
   constructor(private readonly groups: AnimationGroup[]) {
+    makeRootMotionInPlace(groups);
     this.groupsByName = new Map(groups.map((group) => [group.name.toLowerCase(), group]));
+    for (const group of groups) {
+      for (const targeted of group.targetedAnimations) {
+        targeted.animation.enableBlending = true;
+        targeted.animation.blendingSpeed = 0.14;
+      }
+    }
   }
 
   play(motion: CharacterMotion, loop = false, speedRatio = 1) {
     const group = this.find(motion);
-    if (!group || group === this.current) {
-      if (group) group.speedRatio = speedRatio;
-      return Boolean(group);
-    }
-    this.current?.stop();
-    this.current = group;
-    group.speedRatio = speedRatio;
-    group.reset();
-    group.start(loop);
-    return true;
+    return group ? this.playGroup(group, loop, speedRatio, false) : false;
+  }
+
+  playNamed(name: string, loop = false, speedRatio = 1, restart = !loop) {
+    const group = this.groupsByName.get(name.toLowerCase());
+    return group ? this.playGroup(group, loop, speedRatio, restart) : false;
+  }
+
+  has(name: string) {
+    return this.groupsByName.has(name.toLowerCase());
+  }
+
+  names() {
+    return this.groups.map((group) => group.name);
   }
 
   stop() {
@@ -49,11 +90,36 @@ export class CharacterAnimator {
     this.current = null;
   }
 
+  dispose() {
+    this.stop();
+    this.groups.forEach((group) => group.dispose());
+  }
+
   duration(motion: CharacterMotion, speedRatio = 1) {
     const group = this.find(motion);
     if (!group) return null;
     const frameRate = group.targetedAnimations[0]?.animation.framePerSecond ?? 30;
     return Math.max(0.08, (group.to - group.from) / frameRate / Math.max(0.1, speedRatio));
+  }
+
+  durationNamed(name: string, speedRatio = 1) {
+    const group = this.groupsByName.get(name.toLowerCase());
+    if (!group) return null;
+    const frameRate = group.targetedAnimations[0]?.animation.framePerSecond ?? 30;
+    return Math.max(0.08, (group.to - group.from) / frameRate / Math.max(0.1, speedRatio));
+  }
+
+  private playGroup(group: AnimationGroup, loop: boolean, speedRatio: number, restart: boolean) {
+    if (group === this.current && !restart) {
+      group.speedRatio = speedRatio;
+      return true;
+    }
+    this.current?.stop();
+    this.current = group;
+    group.speedRatio = speedRatio;
+    group.reset();
+    group.start(loop);
+    return true;
   }
 
   private find(motion: CharacterMotion) {
@@ -85,7 +151,7 @@ export class CharacterLibrary {
     const pending = this.preparing.get(key);
     if (pending) return pending;
     this.tracePreload("requested", key);
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("preloadFailureAudit")) {
+    if (runtimeFlags.preloadFailureAudit) {
       const task = Promise.resolve(false).then((ready) => {
         this.failedPreloads.add(key);
         this.tracePreload("failed", key);
@@ -94,14 +160,14 @@ export class CharacterLibrary {
       this.preparing.set(key, task);
       return task;
     }
-    const task = SceneLoader.LoadAssetContainerAsync("", characterAssets[key], this.scene)
+    const task = this.loadContainerWithRetry(key)
       .then((container) => {
         if (this.disposed) {
           container.dispose();
           return false;
         }
-        this.evictPreparedExcept(key);
         this.prepared.set(key, container);
+        this.evictPreparedCache(key);
         this.tracePreload("ready", key);
         return true;
       })
@@ -109,6 +175,7 @@ export class CharacterLibrary {
         console.warn(`Unable to preload ${key} character asset`, error);
         this.failedPreloads.add(key);
         this.tracePreload("failed", key);
+        this.reportLoadFailure(key);
         return false;
       })
       .finally(() => this.preparing.delete(key));
@@ -155,11 +222,18 @@ export class CharacterLibrary {
       .then((result) => {
         this.attachVisual(key, result.meshes, result.animationGroups, anchor, scale, onReady);
       })
-      .catch((error) => console.warn(`Unable to load ${key} character asset`, error));
+      .catch((error) => {
+        console.warn(`Unable to load ${key} character asset`, error);
+        this.reportLoadFailure(key);
+      });
   }
 
   private attachVisual(key: CharacterKey, roots: Node[], animationGroups: AnimationGroup[], anchor: TransformNode, scale: number, onReady: (instance: TransformNode, animator: CharacterAnimator) => void) {
-    if (this.disposed || anchor.isDisposed()) return;
+    if (this.disposed || anchor.isDisposed()) {
+      animationGroups.forEach((group) => group.dispose());
+      roots.filter((node) => !node.parent).forEach((node) => node.dispose(false, true));
+      return;
+    }
     const instance = new TransformNode(`character-${key}-${this.serial++}`, this.scene);
     roots.filter((node) => !node.parent).forEach((node) => { node.parent = instance; });
     instance.parent = anchor;
@@ -180,12 +254,39 @@ export class CharacterLibrary {
   }
 
   private tracePreload(state: "requested" | "ready" | "consumed" | "failed" | "fallback", key: CharacterKey) {
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("preloadAudit")) {
+    if (runtimeFlags.preloadAudit) {
       console.info(`[PreloadAudit] ${state} ${key}`);
     }
   }
 
-  private evictPreparedExcept(key: CharacterKey) {
-    retainOnlyPrepared(this.prepared, key, (container) => container.dispose());
+  private reportLoadFailure(key: CharacterKey) {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent("arena-asset-error", {
+      detail: { key, recoverable: true, message: `${key} の3D素材を読み込めませんでした。代替表示で続行します。` },
+    }));
+  }
+
+  private async loadContainerWithRetry(key: CharacterKey) {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        return await SceneLoader.LoadAssetContainerAsync("", characterAssets[key], this.scene);
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 220));
+      }
+    }
+    throw lastError;
+  }
+
+  private evictPreparedCache(current: CharacterKey) {
+    const pinned = new Set<CharacterKey>(["goose", "poop", current]);
+    if (this.prepared.size <= 4) return;
+    for (const [key, container] of this.prepared) {
+      if (this.prepared.size <= 4) break;
+      if (pinned.has(key)) continue;
+      container.dispose();
+      this.prepared.delete(key);
+    }
   }
 }

@@ -9,9 +9,9 @@ export type GameHandle = {
   dispose: () => void;
 };
 
-export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement): Promise<GameHandle> {
+export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement, playerName: string): Promise<GameHandle> {
   const scene = new Scene(engine);
-  const world = new GameWorld(scene, canvas);
+  const world = new GameWorld(scene, canvas, playerName);
   scene.onBeforeRenderObservable.add(() => world.update(scene.getEngine().getDeltaTime() / 1000));
   return {
     scene,

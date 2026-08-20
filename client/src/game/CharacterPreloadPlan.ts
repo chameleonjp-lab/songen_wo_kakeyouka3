@@ -1,6 +1,6 @@
 export function nextPreloadKey<T>(keys: readonly T[], cursor: number) {
-  if (keys.length === 0) return null;
-  return keys[cursor % keys.length] ?? null;
+  if (keys.length === 0 || !Number.isInteger(cursor) || cursor < 0) return null;
+  return keys[cursor] ?? null;
 }
 
 export function retainOnlyPrepared<T, TValue>(cache: Map<T, TValue>, keep: T, dispose: (value: TValue) => void) {
