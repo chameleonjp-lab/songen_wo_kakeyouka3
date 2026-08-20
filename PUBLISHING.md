@@ -30,9 +30,9 @@ CIは成果物を公開しません。失敗時はPagesデプロイも通さな�
 2. `actions/upload-pages-artifact@v3`（path: `./dist/public`）
 3. `actions/deploy-pages@v4`
 
-workflowのビルド開始時にはPages APIをpreflightし、サイトが未有効化、またはSourceがGitHub Actionsでない場合は依存関係のインストール前に停止して設定手順を表示します。これはPagesを自動有効化する処理ではありません。
+workflowのビルド開始時にはPages APIをpreflightし、Pagesの設定を取得できない、またはSourceがGitHub Actionsでない場合は依存関係のインストール前に停止して設定手順を表示します。これはPagesを自動有効化する処理ではありません。APIの404だけで「Pages全体が無効」とは断定せず、既存のJekyll公開が見えている場合もSourceを確認します。
 
-リポジトリ設定の Pages → Build and deployment → Source は **GitHub Actions** にします。Pagesが未有効化の場合、`actions/configure-pages@v5` は `Get Pages site failed: Not Found` で停止するため、workflowの修正だけでは公開できません。デプロイジョブには `pages: write` と `id-token: write`、ビルドジョブには依存関係インストールと静的出力検証が必要です。
+リポジトリ設定の Pages → Build and deployment → Source は **GitHub Actions** にします。公開URLがHTTP 200でも、README由来のJekyllページが返る場合はゲームが公開された状態ではありません。`actions/configure-pages@v5` がPages APIの404で停止する場合も、SourceをGitHub Actionsへ変更してからworkflowを再実行します。デプロイジョブには `pages: write` と `id-token: write`、ビルドジョブには依存関係インストールと静的出力検証が必要です。
 
 `base: "./"` と `publicAssetUrl()` により、プロジェクトページのサブパスでもHTMLから画像・GLB・遅延chunkを相対参照します。公開後はプロジェクトURLの直下と、ブラウザのハードリロードの両方を確認してください。
 
