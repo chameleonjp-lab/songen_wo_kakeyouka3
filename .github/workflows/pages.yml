@@ -45,6 +45,9 @@ jobs:
       - name: Build static site
         run: pnpm build
 
+      - name: Verify static output paths and runtime assets
+        run: pnpm check:static
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 

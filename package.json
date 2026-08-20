@@ -8,6 +8,7 @@
     "dev:server": "NODE_ENV=development tsx watch server/_core/index.ts",
     "build": "pnpm build:static",
     "build:static": "vite build",
+    "check:static": "python3 tools/check_static_output.py",
     "build:server": "esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist/server",
     "start": "vite preview --host 0.0.0.0",
     "start:server": "NODE_ENV=production node dist/server/index.js",

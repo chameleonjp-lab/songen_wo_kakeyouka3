@@ -6,8 +6,9 @@
 
 | 状態 | 内容 | 次の確認 |
 |---|---|---|
-| CI確認済み・実機検証待ち | GitHub Actions run #10で `pnpm check`、Vitest（14 files / 61 tests）、本番build、GLB監査、runtime素材同期を同一commitで実行済み | CI run #10のartifactと、Pages／実機での画面・Network再確認 |
-| 検証待ち | GitHub Pagesの実プロジェクトサブパスで遅延chunk、画像、GLB、faviconを確認していない | Pages URLでhard reloadとNetworkを確認 |
+| CI確認済み・実機検証待ち | GitHub Actions run #13（merge commit `b4efa798`）で `pnpm check`、Vitest（14 files / 61 tests）、本番build、GLB監査、runtime素材同期を同一commitで実行済み。artifactは `production-build`（7,994,629 bytes、SHA-256 `b1e4a42a8550f6e7442f87f6e84f6fc72351d89627ab8793d868a9666948d5df`） | Pages／実機での画面・Network再確認 |
+| Pages設定待ち | merge後のDeploy to GitHub Pages run #1（job `build`）は `actions/configure-pages@v5` の `Get Pages site failed: Not Found` で停止。2026-08-20時点で Pages API と公開URLが404で、リポジトリのPagesが未有効化 | Repository Settings → Pages → Build and deployment → Source を **GitHub Actions** に設定してから `Deploy to GitHub Pages` を再実行 |
+| 検証待ち | GitHub Pagesの実プロジェクトサブパスで遅延chunk、画像、GLB、faviconを確認していない | Pages有効化後に公開URLでhard reloadとNetworkを確認 |
 | 検証待ち | iPhone Safariで6戦の起動・タッチ・音声・復帰を最終確認していない | [IPHONE.md](IPHONE.md) の手順を実機で実行 |
 | 修正済み・画面再確認待ち | ランチャー／ゲーム開始文言を旧集団戦から6戦1対1へ更新した | `SIX CONSECUTIVE DUELS` と6体表記を実機で再確認 |
 | 要確認 | Nodeサーバー経路は静的ゲームの既定起動から分離済みだが、今回のブラウザ確認対象外 | Nodeサーバーを使う環境で `pnpm build:server && pnpm start:server` を確認 |
