@@ -30,6 +30,8 @@ CIは成果物を公開しません。失敗時はPagesデプロイも通さな�
 2. `actions/upload-pages-artifact@v3`（path: `./dist/public`）
 3. `actions/deploy-pages@v4`
 
+workflowのビルド開始時にはPages APIをpreflightし、サイトが未有効化、またはSourceがGitHub Actionsでない場合は依存関係のインストール前に停止して設定手順を表示します。これはPagesを自動有効化する処理ではありません。
+
 リポジトリ設定の Pages → Build and deployment → Source は **GitHub Actions** にします。Pagesが未有効化の場合、`actions/configure-pages@v5` は `Get Pages site failed: Not Found` で停止するため、workflowの修正だけでは公開できません。デプロイジョブには `pages: write` と `id-token: write`、ビルドジョブには依存関係インストールと静的出力検証が必要です。
 
 `base: "./"` と `publicAssetUrl()` により、プロジェクトページのサブパスでもHTMLから画像・GLB・遅延chunkを相対参照します。公開後はプロジェクトURLの直下と、ブラウザのハードリロードの両方を確認してください。

@@ -23,6 +23,39 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Check GitHub Pages configuration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          response_file="$(mktemp)"
+          status="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages")"
+
+          if [ "$status" = "404" ]; then
+            echo "::error title=GitHub Pages is not enabled::Enable Pages in Repository Settings → Pages → Build and deployment, set Source to GitHub Actions, then rerun this workflow. (API status ${status})"
+            cat "$response_file"
+            exit 1
+          fi
+
+          if [ "$status" != "200" ]; then
+            echo "::error title=GitHub Pages configuration could not be read::The Pages API returned HTTP ${status}; check repository permissions and Pages settings before rerunning."
+            cat "$response_file"
+            exit 1
+          fi
+
+          build_type="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("build_type", ""))' "$response_file")"
+          if [ "$build_type" != "workflow" ]; then
+            echo "::error title=GitHub Pages source is not GitHub Actions::Set Pages → Build and deployment → Source to GitHub Actions, then rerun this workflow. (build_type=${build_type:-unknown})"
+            cat "$response_file"
+            exit 1
+          fi
+
+          echo "GitHub Pages is enabled with GitHub Actions as the source."
+
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
 
