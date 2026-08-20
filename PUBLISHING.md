@@ -17,6 +17,7 @@ GitHub Pagesで使うのは `dist/public/` のみです。`dist/server/` はNode
 - Node.js 22をセットアップ
 - `pnpm install --frozen-lockfile`
 - `pnpm check`、`pnpm test`、`python3 tools/audit_character_glbs.py --check`、`pnpm build`
+- `pnpm check:static` でHTMLの相対参照、登録済みruntime素材、JS内のroot-absolute素材URLを確認
 - `dist/public/index.html` の存在を確認
 
 CIは成果物を公開しません。失敗時はPagesデプロイも通さない運用にします。
@@ -29,7 +30,7 @@ CIは成果物を公開しません。失敗時はPagesデプロイも通さな�
 2. `actions/upload-pages-artifact@v3`（path: `./dist/public`）
 3. `actions/deploy-pages@v4`
 
-リポジトリ設定の Pages → Build and deployment → Source は **GitHub Actions** にします。デプロイジョブには `pages: write` と `id-token: write`、ビルドジョブには依存関係インストールと静的出力検証が必要です。
+リポジトリ設定の Pages → Build and deployment → Source は **GitHub Actions** にします。Pagesが未有効化の場合、`actions/configure-pages@v5` は `Get Pages site failed: Not Found` で停止するため、workflowの修正だけでは公開できません。デプロイジョブには `pages: write` と `id-token: write`、ビルドジョブには依存関係インストールと静的出力検証が必要です。
 
 `base: "./"` と `publicAssetUrl()` により、プロジェクトページのサブパスでもHTMLから画像・GLB・遅延chunkを相対参照します。公開後はプロジェクトURLの直下と、ブラウザのハードリロードの両方を確認してください。
 
