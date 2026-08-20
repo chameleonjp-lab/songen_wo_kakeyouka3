@@ -6,7 +6,7 @@
 
 | 状態 | 内容 | 次の確認 |
 |---|---|---|
-| 検証待ち | 最終コード統合後の `pnpm check`、Vitest、本番build、GLB監査をクリーン環境で実行する必要がある | CIの同一commit結果を添付 |
+| CI確認済み・実機検証待ち | GitHub Actions run #10で `pnpm check`、Vitest（14 files / 61 tests）、本番build、GLB監査、runtime素材同期を同一commitで実行済み | CI run #10のartifactと、Pages／実機での画面・Network再確認 |
 | 検証待ち | GitHub Pagesの実プロジェクトサブパスで遅延chunk、画像、GLB、faviconを確認していない | Pages URLでhard reloadとNetworkを確認 |
 | 検証待ち | iPhone Safariで6戦の起動・タッチ・音声・復帰を最終確認していない | [IPHONE.md](IPHONE.md) の手順を実機で実行 |
 | 修正済み・画面再確認待ち | ランチャー／ゲーム開始文言を旧集団戦から6戦1対1へ更新した | `SIX CONSECUTIVE DUELS` と6体表記を実機で再確認 |
