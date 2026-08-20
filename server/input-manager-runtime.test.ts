@@ -38,7 +38,7 @@ function installFakeDom() {
     focus() {},
     setPointerCapture() {},
     emit(type: string, detail: Record<string, unknown> = {}) {
-      const event = { pointerId: 0, button: 0, movementX: 0, movementY: 0, currentTarget: canvas, ...detail } as unknown as Event;
+      const event = { type, pointerId: 0, button: 0, movementX: 0, movementY: 0, currentTarget: canvas, ...detail } as unknown as Event;
       canvasTarget.dispatchEvent(event);
     },
   } as unknown as HTMLCanvasElement & { emit(type: string, detail?: Record<string, unknown>): void };

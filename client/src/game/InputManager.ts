@@ -46,7 +46,7 @@ export class InputManager {
   }
 
   private prune(now = this.now()) {
-    while (this.queue[0] && now - this.queue[0].at > INPUT_QUEUE_WINDOW_MS) this.queue.shift();
+    while (this.queue[0] && now - this.queue[0].at >= INPUT_QUEUE_WINDOW_MS) this.queue.shift();
   }
 
   private readonly keyDown = (event: KeyboardEvent) => {
