@@ -1,4 +1,4 @@
-// Bronze & Blood Arena gameplay — a procedural third-person crowd brawler where clarity and attack weight outrank realism of the player prototype.
+// 尊厳を賭けようか3 — deterministic third-person six-duel combat runtime.
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
 import "@babylonjs/core/Culling/ray";
 import "@babylonjs/core/Shaders/default.vertex";
@@ -10,7 +10,7 @@ import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
-import { Quaternion, Vector2, Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Matrix, Quaternion, Vector2, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
@@ -19,7 +19,6 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { Scene } from "@babylonjs/core/scene";
 import { arenaAssets, enemyCharacterKeys, type EnemyCharacterKey } from "@/game/assets";
 import { CharacterAnimator, CharacterLibrary, type CharacterMotion } from "@/game/CharacterLibrary";
-import { nextPreloadKey } from "@/game/CharacterPreloadPlan";
 import { InputManager } from "@/game/InputManager";
 import { CombatAudio } from "@/game/CombatAudio";
 import { createEntryRoarTelemetry } from "@/game/EntryRoarTelemetry";
@@ -28,9 +27,17 @@ import { Haptics } from "@/game/Haptics";
 import { applyLockCameraLook } from "@/game/CameraRig";
 import { fixedThirdPersonRig } from "@/game/FixedThirdPersonCamera";
 import { advanceRoundSpawn } from "@/game/RoundFlow";
+import { selectAttackMove, ENEMY_ATTACK_SETS, ATTACK_BY_NAME, type AttackMove } from "@/game/AttackCatalog";
+import { DEFAULT_COMBAT_BALANCE } from "@/game/CombatBalance";
+import { applyDignityDamage, createDignityState, isDignityLost, type DignityState } from "@/game/Dignity";
+import { DEFAULT_ENEMY_ROSTER, enemyProfileFor, type EnemyProfile } from "@/game/EnemyRoster";
+import { resolveHit, TARGET_VOLUME_RADIUS, type HitLocation } from "@/game/HitLocations";
+import { GameSession, targetLabel, type RunResult } from "@/game/GameSession";
+import { runtimeFlags } from "@/game/RuntimeFlags";
+import { requestLocalRetry } from "@/game/PlayerProfile";
 
 type PlayerMode = "idle" | "move" | "light" | "heavy" | "guard" | "counter" | "musou" | "dodge" | "fallen";
-type EnemyMode = "spawn" | "approach" | "telegraph" | "strike" | "recover" | "stagger" | "dead";
+type EnemyMode = "spawn" | "approach" | "telegraph" | "strike" | "charge" | "recover" | "stagger" | "dead";
 
 type Attack = {
   kind: "light" | "heavy" | "counter" | "musou";
@@ -38,12 +45,16 @@ type Attack = {
   time: number;
   duration: number;
   hitAt: number;
+  hitEndAt: number;
   didHit: boolean;
+  connected: boolean;
   queued: "light" | "heavy" | null;
   pulse: number;
+  move: AttackMove;
+  target: HitLocation;
 };
 
-type EnemyProfile = {
+type EnemyPresentation = {
   name: string;
   taunt: string;
   entryMotion: CharacterMotion;
@@ -53,6 +64,8 @@ type EnemyProfile = {
 
 type HudPayload = {
   health: number;
+  playerHealth: number;
+  playerMaxHealth: number;
   rage: number;
   kills: number;
   combo: number;
@@ -66,6 +79,34 @@ type HudPayload = {
   taunt: string;
   challengeProgress: number;
   lockOn: boolean;
+  playerName: string;
+  dignity: number;
+  playerDignity: number;
+  playerMaxDignity: number;
+  enemyCount: number;
+  enemyHealth: number;
+  enemyMaxHealth: number;
+  enemyDignity: number;
+  enemyMaxDignity: number;
+  enemyName: string;
+  round: number;
+  totalRounds: number;
+  roundTotal: number;
+  score: number;
+  elapsed: number;
+  elapsedSeconds: number;
+  dodgeCooldown: number;
+  dodgeReady: boolean;
+  aimTarget: HitLocation;
+  heartOpen: boolean;
+  lockTarget: string | null;
+  notice: string;
+  guardBreak: number;
+  counterReady: boolean;
+  loadState: "loading" | "ready";
+  intermission: boolean;
+  intermissionRemaining: number;
+  result: RunResult | null;
 };
 
 const ARENA_RADIUS = 21.5;
@@ -75,17 +116,17 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
 const wrapAngle = (value: number) => Math.atan2(Math.sin(value), Math.cos(value));
 const lerpAngle = (from: number, to: number, amount: number) => from + wrapAngle(to - from) * amount;
 const forwardFromYaw = (yaw: number) => new Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-const enemyProfiles: Record<EnemyCharacterKey, EnemyProfile> = {
-  bear: { name: "BEAR", taunt: "その翼、へし折る。", entryMotion: "heavy", entryLean: 0.12, roarIntensity: 1.08 },
-  crocodile: { name: "CROCODILE", taunt: "噛み砕いてやる。", entryMotion: "guard", entryLean: -0.08, roarIntensity: 0.9 },
-  gorilla: { name: "GORILLA", taunt: "拳で語れ。", entryMotion: "counter", entryLean: 0.16, roarIntensity: 1.02 },
-  hippopotamus: { name: "HIPPOPOTAMUS", taunt: "踏み潰して進む。", entryMotion: "heavy", entryLean: -0.14, roarIntensity: 1.18 },
-  lion: { name: "LION", taunt: "王の前に跪け。", entryMotion: "light", entryLean: 0.1, roarIntensity: 0.96 },
-  rhinoceros: { name: "RHINOCEROS", taunt: "正面から来い。", entryMotion: "heavy", entryLean: -0.18, roarIntensity: 1.1 },
+const enemyPresentations: Record<EnemyCharacterKey, EnemyPresentation> = {
+  bear: { name: "熊", taunt: "その翼、へし折る。", entryMotion: "heavy", entryLean: 0.12, roarIntensity: 1.08 },
+  crocodile: { name: "ワニ", taunt: "噛み砕いてやる。", entryMotion: "guard", entryLean: -0.08, roarIntensity: 0.9 },
+  gorilla: { name: "ゴリラ", taunt: "拳で語れ。", entryMotion: "counter", entryLean: 0.16, roarIntensity: 1.02 },
+  hippopotamus: { name: "カバ", taunt: "踏み潰して進む。", entryMotion: "heavy", entryLean: -0.14, roarIntensity: 1.18 },
+  lion: { name: "ライオン", taunt: "王の前に跪け。", entryMotion: "light", entryLean: 0.1, roarIntensity: 0.96 },
+  rhinoceros: { name: "サイ", taunt: "正面から来い。", entryMotion: "heavy", entryLean: -0.18, roarIntensity: 1.1 },
 };
 
 const challengerNames: Record<EnemyCharacterKey, string> = Object.fromEntries(
-  Object.entries(enemyProfiles).map(([key, profile]) => [key, profile.name]),
+  Object.entries(enemyPresentations).map(([key, profile]) => [key, profile.name]),
 ) as Record<EnemyCharacterKey, string>;
 
 export class GameWorld {
@@ -100,14 +141,15 @@ export class GameWorld {
   readonly characters: CharacterLibrary;
   readonly audio: CombatAudio;
   readonly haptics: Haptics;
+  readonly session: GameSession;
 
   private spawnClock = 0;
   private challengeTimer = 0;
   private readonly challengeDuration = 1.8;
   private readonly initialSpawnDelay = 3;
   private challengeWindow = this.challengeDuration;
-  private challenger = "BEAR";
-  private taunt = "その翼、へし折る。";
+  private challenger = "ゴリラ";
+  private taunt = "拳で語れ。";
   private enemyCharacterCursor = 0;
   private hudClock = 0;
   private elapsed = 0;
@@ -116,7 +158,9 @@ export class GameWorld {
   private readonly entryRoarCounts = new Map<EnemyCharacterKey, number>();
   private attackClashRequested = false;
   private clashAuditTriggered = false;
-  private started: boolean;
+  private started = false;
+  private startRequested = false;
+  private assetsPrepared = false;
   private paused = false;
   private killCount = 0;
   private combo = 0;
@@ -124,21 +168,58 @@ export class GameWorld {
   private cameraShake = 0;
   private lockTarget: BarbarianEnemy | null = null;
   private cameraOrbitOffset = 0;
+  private cameraBeta = 1.05;
   private lockAuditClock = 0;
   private lockAuditHudState: boolean | null = null;
+  private notice = "";
+  private noticeTime = 0;
+  private completed = false;
+  private result: RunResult | null = null;
+  private screenShakeScale = 1;
+  private randomState = 0x51f15e;
+  private disposed = false;
+  private readonly auditTimers: number[] = [];
+  private readonly effectPool = new Map<CombatEffectKind, CombatEffect[]>();
   private readonly onCommand = (event: Event) => {
-    const command = (event as CustomEvent<{ command: string }>).detail?.command;
+    const detail = (event as CustomEvent<{ command: string; value?: string | number | boolean }>).detail;
+    const command = detail?.command;
     if (command === "start") this.start();
     if (command === "pause") this.paused = !this.paused;
-    if (command === "restart") window.location.reload();
+    if (command === "restart") {
+      requestLocalRetry();
+      window.location.reload();
+    }
+    if (command === "retire") this.finishRun("retired");
+    if (command === "top") window.location.assign(import.meta.env.BASE_URL);
+    if (command === "shake") this.screenShakeScale = detail.value === "none" ? 0 : detail.value === "weak" ? 0.45 : 1;
   };
 
-  constructor(scene: Scene, canvas: HTMLCanvasElement) {
+  private readonly onAutoPause = () => {
+    if (this.started && !this.completed) this.paused = true;
+  };
+
+  private readonly onAudioSettings = (event: Event) => {
+    const detail = (event as CustomEvent<Partial<import("@/game/CombatAudio").CombatAudioSettings>>).detail;
+    if (detail) this.audio.updateSettings(detail);
+  };
+
+  private readonly onHapticsSettings = (event: Event) => {
+    const enabled = (event as CustomEvent<{ enabled?: boolean }>).detail?.enabled;
+    if (typeof enabled === "boolean") this.haptics.setEnabled(enabled);
+  };
+
+  constructor(scene: Scene, canvas: HTMLCanvasElement, playerName: string) {
     this.scene = scene;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) this.screenShakeScale = 0.3;
     this.input = new InputManager(canvas);
-    this.started = this.input.isDemo;
+    this.session = new GameSession(playerName);
     this.materials = new ArenaMaterials(scene);
     this.characters = new CharacterLibrary(scene);
+    const initialPreload = Promise.all([
+      this.characters.preload("goose"),
+      this.characters.preload(enemyCharacterKeys[0]),
+      this.characters.preload("poop"),
+    ]);
     this.audio = new CombatAudio();
     this.haptics = new Haptics();
     this.configureScene();
@@ -151,35 +232,51 @@ export class GameWorld {
     this.camera.upperBetaLimit = 1.25;
     this.camera.wheelPrecision = 50;
     this.camera.panningSensibility = 0;
+    this.camera.checkCollisions = true;
+    this.camera.collisionRadius = new Vector3(0.45, 0.45, 0.45);
     this.camera.attachControl(canvas, false);
     this.camera.inputs.clear();
     window.addEventListener("arena-command", this.onCommand);
-    if (this.input.isDemo) {
-      this.spawnEnemy(-1);
-    } else {
-      void this.characters.preload(enemyCharacterKeys[0]);
+    window.addEventListener("arena-auto-pause", this.onAutoPause);
+    window.addEventListener("arena-audio-settings", this.onAudioSettings);
+    window.addEventListener("arena-haptics-settings", this.onHapticsSettings);
+    this.startRequested = this.input.isDemo;
+    void initialPreload.then((results) => {
+      if (this.disposed) return;
+      this.assetsPrepared = true;
+      if (results.some((ready) => !ready)) this.notify("一部素材を代替表示で開始します", 1.8);
+      if (this.startRequested) this.beginRun();
+      this.emitHud(1);
+    });
+    if (this.input.isDemo && runtimeFlags.audioAudit) {
+      this.scheduleAudit(() => this.runAudioAudit(), 260);
     }
-    if (this.input.isDemo && new URLSearchParams(window.location.search).has("audioAudit")) {
-      window.setTimeout(() => this.runAudioAudit(), 260);
-    }
-    if (this.input.isDemo && new URLSearchParams(window.location.search).has("clashAudit")) {
+    if (this.input.isDemo && runtimeFlags.clashAudit) {
       console.info("[ClashAudit] scheduled");
-      window.setTimeout(() => this.runClashAudit(), 720);
+      this.scheduleAudit(() => this.runClashAudit(), 720);
     }
-    if (this.input.isDemo && new URLSearchParams(window.location.search).has("combatAudit")) {
-      window.setTimeout(() => this.runCombatAudit(), 720);
+    if (this.input.isDemo && runtimeFlags.combatAudit) {
+      this.scheduleAudit(() => this.runCombatAudit(), 720);
     }
-    if (this.input.isDemo && new URLSearchParams(window.location.search).has("lockAudit")) {
-      window.setTimeout(() => this.runMouseLookAudit(), 850);
-      window.setTimeout(() => this.runLockAuditTransition(), 1600);
+    if (this.input.isDemo && runtimeFlags.lockAudit) {
+      this.scheduleAudit(() => this.runMouseLookAudit(), 850);
+      this.scheduleAudit(() => this.runLockAuditTransition(), 1600);
     }
-    if (this.input.isDemo && new URLSearchParams(window.location.search).has("adversarialAudit")) {
-      window.setTimeout(() => this.runPreLethalAudit(), 1100);
+    if (this.input.isDemo && runtimeFlags.adversarialAudit) {
+      this.scheduleAudit(() => this.runPreLethalAudit(), 1100);
     }
     this.emitHud();
   }
 
+  private scheduleAudit(task: () => void, delay: number) {
+    const timer = window.setTimeout(() => {
+      if (!this.disposed) task();
+    }, delay);
+    this.auditTimers.push(timer);
+  }
+
   private configureScene() {
+    this.scene.collisionsEnabled = true;
     this.scene.clearColor = new Color4(0.018, 0.017, 0.021, 1);
     this.scene.ambientColor = new Color3(0.18, 0.12, 0.08);
     const hemi = new HemisphericLight("ashSky", new Vector3(0.1, 1, 0.15), this.scene);
@@ -195,6 +292,7 @@ export class GameWorld {
   private buildArena() {
     const floor = MeshBuilder.CreateGround("crackedArena", { width: 48, height: 48, subdivisions: 2 }, this.scene);
     floor.material = this.materials.ground;
+    floor.checkCollisions = true;
 
     for (let index = 0; index < 34; index += 1) {
       const theta = (index / 34) * Math.PI * 2;
@@ -203,6 +301,7 @@ export class GameWorld {
       wall.position.set(Math.sin(theta) * radius, 0.32 + (index % 3) * 0.04, Math.cos(theta) * radius);
       wall.rotation.y = theta;
       wall.material = index % 4 === 0 ? this.materials.stoneLight : this.materials.stone;
+      wall.checkCollisions = true;
     }
 
     for (let index = 0; index < 4; index += 1) {
@@ -218,7 +317,8 @@ export class GameWorld {
       cloth.parent = base;
       cloth.position.set(0.65, 4.2, 0);
       cloth.material = this.materials.banner;
-      this.bannerNodes.push(base);
+      // Animate only the cloth; the pole and its foundation stay rigid.
+      this.bannerNodes.push(cloth);
     }
 
     const braziers = [
@@ -229,8 +329,13 @@ export class GameWorld {
       const pit = MeshBuilder.CreateCylinder(`brazier-${index}`, { height: 0.8, diameterTop: 1.1, diameterBottom: 1.35, tessellation: 10 }, this.scene);
       pit.position = position.add(new Vector3(0, 0.4, 0));
       pit.material = this.materials.iron;
-      const flame = MeshBuilder.CreateSphere(`flame-${index}`, { diameter: 0.82, segments: 8 }, this.scene);
-      flame.position = position.add(new Vector3(0, 1.05, 0));
+      const flame = MeshBuilder.CreateCylinder(`flame-${index}`, {
+        height: 1.05,
+        diameterTop: 0.06,
+        diameterBottom: 0.64,
+        tessellation: 7,
+      }, this.scene);
+      flame.position = position.add(new Vector3(0, 1.16, 0));
       flame.material = this.materials.fire;
       const light = new PointLight(`fireLight-${index}`, position.add(new Vector3(0, 1.7, 0)), this.scene);
       light.diffuse = Color3.FromHexString("#EA812B");
@@ -240,31 +345,50 @@ export class GameWorld {
   }
 
   update(delta: number) {
-    const rawDelta = Math.min(delta, 1 / 30);
+    if (this.disposed) return;
+    // Preserve real-time pacing on a temporarily slow mobile frame while
+    // bounding a background-tab resume spike.
+    const rawDelta = Math.min(delta, 0.1);
     this.slowMotionTime = Math.max(0, this.slowMotionTime - rawDelta);
     const capped = rawDelta * (this.slowMotionTime > 0 ? 0.3 : 1);
     this.elapsed += capped;
-    this.bannerNodes.forEach((node, index) => {
-      node.rotation.z = Math.sin(this.elapsed * 1.65 + index * 1.7) * 0.04;
+    this.bannerNodes.forEach((cloth, index) => {
+      cloth.rotation.z = Math.sin(this.elapsed * 1.65 + index * 1.7) * 0.04;
+      cloth.rotation.y = Math.sin(this.elapsed * 2.15 + index * 1.1) * 0.035;
     });
 
     this.input.update(capped);
     if (this.input.consume("pause")) this.paused = !this.paused;
-    if (this.input.consume("restart")) window.location.reload();
-    if (this.paused || !this.started || this.player.mode === "fallen") {
+    if (this.input.consume("restart")) {
+      requestLocalRetry();
+      window.location.reload();
+    }
+    if (this.paused || !this.started || this.completed) {
       this.updateCamera(capped);
       this.emitHud(capped);
       return;
     }
 
+    const roundActive = this.enemies.some((enemy) => !enemy.removed && enemy.mode !== "dead" && enemy.mode !== "spawn");
+    this.session.tick(capped, roundActive);
+    this.noticeTime = Math.max(0, this.noticeTime - capped);
+    if (this.noticeTime <= 0) this.notice = "";
     this.player.update(capped);
+    if (this.player.mode === "fallen") {
+      this.finishRun("defeat");
+      this.emitHud(1);
+      return;
+    }
     const rageReady = this.player.rage >= 100;
     this.enemies.forEach((enemy) => enemy.setRageOutline(rageReady));
     this.challengeTimer = Math.max(0, this.challengeTimer - capped);
     for (const enemy of [...this.enemies]) enemy.update(capped);
     this.effects.forEach((effect) => effect.update(capped));
     for (let index = this.effects.length - 1; index >= 0; index -= 1) {
-      if (this.effects[index].done) this.effects.splice(index, 1);
+      if (this.effects[index].done) {
+        const [effect] = this.effects.splice(index, 1);
+        this.recycleEffect(effect);
+      }
     }
     this.rageTexts.forEach((effect) => effect.update(capped));
     for (let index = this.rageTexts.length - 1; index >= 0; index -= 1) {
@@ -276,7 +400,8 @@ export class GameWorld {
     const activeEnemies = this.enemies.filter((enemy) => !enemy.removed && enemy.mode !== "dead");
     const roundSpawn = advanceRoundSpawn(activeEnemies.length, this.spawnClock, capped);
     this.spawnClock = roundSpawn.spawnClock;
-    if (roundSpawn.shouldSpawn) this.spawnEnemy();
+    if (roundSpawn.shouldSpawn && this.enemyCharacterCursor < enemyCharacterKeys.length) this.spawnEnemy();
+    if (this.killCount >= enemyCharacterKeys.length && activeEnemies.length === 0) this.finishRun("victory");
     this.comboDecay -= capped;
     if (this.comboDecay <= 0) this.combo = 0;
     this.cameraShake = Math.max(0, this.cameraShake - capped * 3.8);
@@ -285,7 +410,10 @@ export class GameWorld {
   }
 
   private updateCamera(delta: number) {
-    this.input.consumeLook();
+    const look = this.input.consumeLook();
+    const adjusted = applyLockCameraLook(this.cameraOrbitOffset, this.cameraBeta, look.x, look.y);
+    this.cameraOrbitOffset = adjusted.orbitOffset;
+    this.cameraBeta = adjusted.beta;
     this.updateLockTarget();
     const playerForward = forwardFromYaw(this.player.root.rotation.y);
     const playerFocus = this.player.root.position.add(new Vector3(0, 1.45, 0));
@@ -294,13 +422,14 @@ export class GameWorld {
     if (this.lockTarget) {
       const enemyFocus = this.lockTarget.root.position.add(new Vector3(0, 1.25, 0));
       const lockFocus = Vector3.Lerp(focus, enemyFocus, 0.35);
+      const fighterDistance = Vector3.Distance(this.player.root.position, this.lockTarget.root.position);
+      const desiredRadius = clamp(8.8 + fighterDistance * 0.28, 9.2, 14.5);
       this.camera.target = Vector3.Lerp(this.camera.target, lockFocus, clamp(delta * 10, 0, 1));
-      this.camera.radius += (rig.radius - this.camera.radius) * clamp(delta * 10, 0, 1);
-      this.camera.alpha = lerpAngle(this.camera.alpha, rig.alpha, clamp(delta * 10, 0, 1));
-      this.camera.beta = rig.beta;
-      this.cameraOrbitOffset = 0;
+      this.camera.radius += (desiredRadius - this.camera.radius) * clamp(delta * 8, 0, 1);
+      this.camera.alpha = lerpAngle(this.camera.alpha, rig.alpha + this.cameraOrbitOffset, clamp(delta * 10, 0, 1));
+      this.camera.beta += (this.cameraBeta - this.camera.beta) * clamp(delta * 10, 0, 1);
       this.lockAuditClock -= delta;
-      if (this.lockAuditClock <= 0 && this.input.isDemo && new URLSearchParams(window.location.search).has("lockAudit")) {
+      if (this.lockAuditClock <= 0 && this.input.isDemo && runtimeFlags.lockAudit) {
         this.lockAuditClock = 0.5;
         console.info("[LockAudit] camera lockOn=true target=%s base=player-back orbitOffset=%s beta=%s radius=%s cameraTarget=(%s,%s,%s) lockFocus=(%s,%s,%s)", this.lockTarget.variant, this.cameraOrbitOffset.toFixed(3), this.camera.beta.toFixed(3), this.camera.radius.toFixed(2), this.camera.target.x.toFixed(2), this.camera.target.y.toFixed(2), this.camera.target.z.toFixed(2), lockFocus.x.toFixed(2), lockFocus.y.toFixed(2), lockFocus.z.toFixed(2));
         window.dispatchEvent(new CustomEvent("arena-lock-audit", { detail: { lockOn: true, target: this.lockTarget.variant, orbitOffset: this.cameraOrbitOffset, beta: this.camera.beta, radius: this.camera.radius, cameraTarget: this.camera.target.clone(), lockFocus } }));
@@ -308,12 +437,12 @@ export class GameWorld {
     } else {
       this.camera.target = Vector3.Lerp(this.camera.target, focus, clamp(delta * 10, 0, 1));
       this.camera.radius += (rig.radius - this.camera.radius) * clamp(delta * 10, 0, 1);
-      this.camera.alpha = lerpAngle(this.camera.alpha, rig.alpha, clamp(delta * 10, 0, 1));
-      this.camera.beta = rig.beta;
+      this.camera.alpha = lerpAngle(this.camera.alpha, rig.alpha + this.cameraOrbitOffset, clamp(delta * 10, 0, 1));
+      this.camera.beta += (this.cameraBeta - this.camera.beta) * clamp(delta * 10, 0, 1);
     }
-    if (this.cameraShake > 0) {
-      this.camera.inertialAlphaOffset += Math.sin(this.elapsed * 63) * this.cameraShake * 0.006;
-      this.camera.inertialBetaOffset += Math.cos(this.elapsed * 53) * this.cameraShake * 0.004;
+    if (this.cameraShake > 0 && this.screenShakeScale > 0) {
+      this.camera.inertialAlphaOffset += Math.sin(this.elapsed * 63) * this.cameraShake * 0.006 * this.screenShakeScale;
+      this.camera.inertialBetaOffset += Math.cos(this.elapsed * 53) * this.cameraShake * 0.004 * this.screenShakeScale;
     }
   }
 
@@ -321,28 +450,37 @@ export class GameWorld {
     const candidate = this.enemies.find((enemy) => !enemy.removed && enemy.mode !== "dead" && enemy.mode !== "spawn") ?? null;
     if (candidate === this.lockTarget) return;
     this.lockTarget = candidate;
-    if (this.input.isDemo && new URLSearchParams(window.location.search).has("lockAudit")) {
+    if (this.input.isDemo && runtimeFlags.lockAudit) {
       const state = candidate ? `acquired target=${candidate.variant}` : "released reason=dead-or-intermission";
       console.info(`[LockAudit] ${state}`);
       window.dispatchEvent(new CustomEvent("arena-lock-audit", { detail: { lockOn: candidate !== null, target: candidate?.variant ?? null, reason: candidate ? "spawned" : "dead-or-intermission" } }));
     }
   }
 
-  private nextEnemyCharacter(): EnemyCharacterKey {
-    const variant = enemyCharacterKeys[this.enemyCharacterCursor % enemyCharacterKeys.length];
+  random() {
+    this.randomState = (Math.imul(this.randomState, 1664525) + 1013904223) >>> 0;
+    return this.randomState / 0x1_0000_0000;
+  }
+
+  private nextEnemyCharacter(): EnemyCharacterKey | null {
+    const variant = enemyCharacterKeys[this.enemyCharacterCursor];
+    if (!variant) return null;
     this.enemyCharacterCursor += 1;
     return variant;
   }
 
   spawnEnemy(delay = 0) {
-    const theta = this.elapsed * 0.66 + this.enemies.length * 2.4 + Math.random() * 0.75;
-    const radius = 17.5 + Math.random() * 2.4;
-    const enemy = new BarbarianEnemy(this, new Vector3(Math.sin(theta) * radius, 0, Math.cos(theta) * radius), delay, this.nextEnemyCharacter());
+    const variant = this.nextEnemyCharacter();
+    if (!variant) return;
+    const theta = this.elapsed * 0.66 + this.enemies.length * 2.4 + this.random() * 0.75;
+    const radius = 17.5 + this.random() * 2.4;
+    const enemy = new BarbarianEnemy(this, new Vector3(Math.sin(theta) * radius, 0, Math.cos(theta) * radius), delay, variant);
+    if (this.input.isDemo && runtimeFlags.quickAudit) enemy.setHealthForAudit(1);
     this.enemies.push(enemy);
-    const nextPreload = nextPreloadKey(enemyCharacterKeys, this.enemyCharacterCursor);
+    const nextPreload = enemyCharacterKeys[this.enemyCharacterCursor] ?? null;
     if (nextPreload) void this.characters.preload(nextPreload);
     this.challengeTimer = 0;
-    if (this.input.isDemo && new URLSearchParams(window.location.search).has("adversarialAudit")) {
+    if (this.input.isDemo && runtimeFlags.adversarialAudit) {
       console.info("[AdversarialAudit] challengeVisible=false spawned=%s", enemy.variant);
     }
   }
@@ -362,17 +500,25 @@ export class GameWorld {
     return force;
   }
 
-  hitEnemies(origin: Vector3, forward: Vector3, range: number, arcDot: number, damage: number, knockback: number, sound: "hit" | "heavy" = "hit") {
+  hitEnemies(origin: Vector3, forward: Vector3, range: number, arcDot: number, damage: number, knockback: number, sound: "hit" | "heavy" = "hit", target: HitLocation = "torso", move?: AttackMove) {
     let hitCount = 0;
     let clashTriggered = false;
+    const effectiveRange = target === "heart" ? range * 0.9 : target === "head" ? range * 0.95 : range;
+    const effectiveArcDot = target === "heart" ? Math.max(0.42, arcDot) : target === "head" ? Math.max(0.18, arcDot) : arcDot;
     for (const enemy of this.enemies) {
       if (enemy.removed || enemy.mode === "dead") continue;
-      const offset = enemy.root.position.subtract(origin);
+      const targetPoint = enemy.targetPoint(target);
+      const attackHeight = target === "head" ? 2.12 : target === "heart" ? 1.52 : 1.2;
+      const strikeOrigin = origin.add(new Vector3(0, attackHeight, 0));
+      const offset = targetPoint.subtract(strikeOrigin);
       const horizontal = new Vector3(offset.x, 0, offset.z);
       const distance = horizontal.length();
-      if (distance > range || distance < 0.1) continue;
+      if (distance > effectiveRange || distance < 0.1) continue;
       const direction = horizontal.normalize();
-      if (Vector3.Dot(forward, direction) < arcDot) continue;
+      if (Vector3.Dot(forward, direction) < effectiveArcDot) continue;
+      const right = new Vector3(forward.z, 0, -forward.x);
+      const hitRadius = enemy.targetRadius(target);
+      if (Math.abs(offset.y) > hitRadius || Math.abs(Vector3.Dot(horizontal, right)) > hitRadius) continue;
       if (this.player.isAttackClashActive() && enemy.isAttackClashActive()) {
         enemy.cancelAttackForClash();
         this.requestAttackClash();
@@ -382,41 +528,31 @@ export class GameWorld {
         }
         continue;
       }
-      enemy.takeDamage(damage, direction.scale(knockback));
-      this.effects.push(new CombatEffect(this.scene, enemy.root.position.add(new Vector3(0, 1.2, 0)), damage > 2 ? "heavy" : "light", this.materials));
+      const resolved = enemy.takeTargetedDamage(damage, direction.scale(knockback), target, move);
+      this.session.recordHit(resolved, move?.name ?? `${sound}-${target}`);
+      const impactKind = resolved.location === "heart" ? "heart" : resolved.location === "head" ? "head" : damage > 2 ? "heavy" : "light";
+      this.spawnEffect(targetPoint, impactKind);
+      this.audio.playHit(resolved.location, sound === "heavy" ? 1.24 : 0.92);
+      this.haptics.triggerHit(resolved.location);
+      this.notify(
+        target === "heart" && !resolved.heartConfirmed
+          ? "心臓はまだ狙えない・胴体命中"
+          : target === "head" && resolved.location !== "head"
+            ? "頭部をかわされた・胴体命中"
+          : resolved.location === "heart"
+            ? "心臓命中 +300"
+            : resolved.location === "head"
+              ? "頭部命中・尊厳ダメージ"
+              : "胴体命中",
+        0.65,
+      );
       hitCount += 1;
     }
     if (hitCount > 0) {
-      this.haptics.trigger(damage > 2 ? "heavy" : "hit");
-      this.audio.play(sound, Math.min(1.5, 0.85 + hitCount * 0.08));
       this.combo += hitCount;
       this.comboDecay = 2.2;
       this.cameraShake = Math.min(1, this.cameraShake + 0.35 + hitCount * 0.05);
       this.player.addRage(hitCount * (damage > 2 ? 10 : 6));
-    }
-    return hitCount;
-  }
-
-  hitEnemiesAll(origin: Vector3, range: number, damage: number, knockback: number, textDensity: number) {
-    let hitCount = 0;
-    for (const enemy of this.enemies) {
-      if (enemy.removed || enemy.mode === "dead") continue;
-      const offset = enemy.root.position.subtract(origin);
-      const horizontal = new Vector3(offset.x, 0, offset.z);
-      const distance = horizontal.length();
-      if (distance > range || distance < 0.1) continue;
-      const direction = horizontal.normalize();
-      enemy.takeDamage(damage, direction.scale(knockback + Math.max(0, range - distance) * 0.18));
-      this.effects.push(new CombatEffect(this.scene, enemy.root.position.add(new Vector3(0, 1.1, 0)), "heavy", this.materials));
-      this.burstRageText(enemy.root.position.add(new Vector3(0, 1.1, 0)), textDensity, 0.68 + Math.min(0.55, distance * 0.06));
-      hitCount += 1;
-    }
-    if (hitCount > 0) {
-      this.haptics.trigger("rage");
-      this.audio.play("rage", Math.min(1.5, 0.9 + hitCount * 0.06));
-      this.combo += hitCount;
-      this.comboDecay = 2.8;
-      this.addCameraShake(Math.min(1.1, 0.4 + hitCount * 0.05));
     }
     return hitCount;
   }
@@ -427,15 +563,51 @@ export class GameWorld {
 
   start() {
     this.audio.unlock();
+    if (this.started || this.startRequested) return;
+    this.startRequested = true;
+    if (!this.assetsPrepared) {
+      this.notify("ガチョウと最初の対戦相手を準備中", 1.2);
+      return;
+    }
+    this.beginRun();
+  }
+
+  private beginRun() {
     if (this.started) return;
     this.started = true;
-    this.spawnClock = this.initialSpawnDelay;
-    this.challengeTimer = this.initialSpawnDelay;
-    this.challengeWindow = this.initialSpawnDelay;
-    const initialVariant = nextPreloadKey(enemyCharacterKeys, this.enemyCharacterCursor) ?? enemyCharacterKeys[0];
+    const openingDelay = this.input.isDemo ? -1 : this.initialSpawnDelay;
+    this.spawnClock = openingDelay;
+    this.challengeTimer = Math.max(0, openingDelay);
+    this.challengeWindow = Math.max(0, openingDelay);
+    const initialVariant = enemyCharacterKeys[this.enemyCharacterCursor] ?? enemyCharacterKeys[0];
     this.challenger = challengerNames[initialVariant];
-    this.taunt = enemyProfiles[initialVariant].taunt;
-    void this.characters.preload(initialVariant);
+    this.taunt = enemyPresentations[initialVariant].taunt;
+    if (this.input.isDemo) this.spawnEnemy(-1);
+  }
+
+  movementDirection(move: Vector2) {
+    if (move.lengthSquared() < 0.002) return Vector3.Zero();
+    if (this.lockTarget) {
+      const toward = this.lockTarget.root.position.subtract(this.player.root.position);
+      toward.y = 0;
+      if (toward.lengthSquared() > 0.001) {
+        toward.normalize();
+        const right = new Vector3(toward.z, 0, -toward.x);
+        return toward.scale(move.y).add(right.scale(move.x)).normalize();
+      }
+    }
+    const cameraForward = new Vector3(Math.sin(-this.camera.alpha - Math.PI / 2), 0, Math.cos(-this.camera.alpha - Math.PI / 2));
+    const cameraRight = new Vector3(cameraForward.z, 0, -cameraForward.x);
+    return cameraForward.scale(move.y).add(cameraRight.scale(move.x)).normalize();
+  }
+
+  currentTarget() {
+    return this.lockTarget;
+  }
+
+  notify(message: string, seconds = 1.1) {
+    this.notice = message;
+    this.noticeTime = seconds;
   }
 
   private runMouseLookAudit() {
@@ -519,8 +691,9 @@ export class GameWorld {
 
   triggerAttackClash(position: Vector3) {
     this.haptics.trigger("clash");
-    this.audio.play("clash", 1.15);
-    if (this.input.isDemo && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("clashAudit")) {
+    this.audio.playClash(1.15);
+    this.session.recordClash();
+    if (this.input.isDemo && runtimeFlags.clashAudit) {
       const comboBefore = this.combo;
       const rageBefore = this.player.rage;
       console.info("[ClashAudit] ATTACK CLASH — CANCEL! damage=0 playerHealth=%s enemyDamage=0 comboBefore=%s comboAfter=%s rageBefore=%s rageAfter=%s", Math.ceil(this.player.health), comboBefore, this.combo, Math.ceil(rageBefore), Math.ceil(this.player.rage));
@@ -529,7 +702,7 @@ export class GameWorld {
     this.slowMotionTime = Math.max(this.slowMotionTime, 0.16);
     this.addCameraShake(0.62);
     this.player.routeLabel = "ATTACK CLASH — CANCEL!";
-    this.effects.push(new CombatEffect(this.scene, position.add(new Vector3(0, 1.05, 0)), "clash", this.materials));
+    this.spawnEffect(position.add(new Vector3(0, 1.05, 0)), "clash");
   }
 
   recordEnemyEntryRoar(variant: EnemyCharacterKey, pan: number) {
@@ -545,22 +718,36 @@ export class GameWorld {
   }
 
   onEnemyDefeated(enemy: BarbarianEnemy) {
-    this.haptics.trigger("defeat");
+    this.haptics.trigger("heavy");
     this.killCount += 1;
+    this.session.recordEnemyDefeat(this.killCount - 1, enemy.scoreMultiplier());
     this.combo += 1;
     this.comboDecay = 2.4;
     this.player.addRage(14);
-    this.spawnClock = this.challengeDuration;
-    this.challengeTimer = this.challengeDuration;
-    this.challengeWindow = this.challengeDuration;
-    if (this.input.isDemo && new URLSearchParams(window.location.search).has("adversarialAudit")) {
+    const hasNext = this.killCount < enemyCharacterKeys.length;
+    this.spawnClock = hasNext ? this.challengeDuration : 0;
+    this.challengeTimer = hasNext ? this.challengeDuration : 0;
+    this.challengeWindow = hasNext ? this.challengeDuration : 0;
+    if (this.input.isDemo && runtimeFlags.adversarialAudit) {
       console.info("[AdversarialAudit] challengeVisible=true defeated=%s", enemy.variant);
     }
-    const nextVariant = nextPreloadKey(enemyCharacterKeys, this.enemyCharacterCursor) ?? enemyCharacterKeys[0];
-    this.challenger = challengerNames[nextVariant];
-    this.taunt = enemyProfiles[nextVariant].taunt;
-    void this.characters.preload(nextVariant);
-    this.effects.push(new CombatEffect(this.scene, enemy.root.position.add(new Vector3(0, 0.4, 0)), "heavy", this.materials));
+    const nextVariant = enemyCharacterKeys[this.enemyCharacterCursor];
+    if (nextVariant) {
+      this.challenger = challengerNames[nextVariant];
+      this.taunt = enemyPresentations[nextVariant].taunt;
+      void this.characters.preload(nextVariant);
+    }
+    this.spawnEffect(enemy.root.position.add(new Vector3(0, 0.4, 0)), "heavy");
+  }
+
+  finishRun(reason: "victory" | "defeat" | "retired") {
+    if (this.completed) return;
+    this.completed = true;
+    this.paused = false;
+    this.result = this.session.finish(reason, this.player.health, this.player.dignity.value, Math.min(6, this.killCount + 1));
+    this.audio.playResult(reason, 1.12);
+    this.haptics.trigger(reason === "victory" ? "victory" : "defeat");
+    this.emitHud(1);
   }
 
   addCameraShake(amount: number) {
@@ -569,28 +756,55 @@ export class GameWorld {
 
   triggerJustGuard(position: Vector3) {
     this.haptics.trigger("justGuard");
-    this.audio.play("guard", 1.1);
-    if (this.input.isDemo && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("combatAudit")) console.info("[CombatAudit] just guard started");
+    this.audio.playJustGuard(1.1);
+    this.session.recordJustGuard();
+    if (this.input.isDemo && runtimeFlags.combatAudit) console.info("[CombatAudit] just guard started");
     this.slowMotionTime = Math.max(this.slowMotionTime, 0.18);
     this.addCameraShake(0.72);
-    this.effects.push(new CombatEffect(this.scene, position.add(new Vector3(0, 1.2, 0)), "guard", this.materials));
+    this.spawnEffect(position.add(new Vector3(0, 1.2, 0)), "guard");
   }
 
   triggerRageBurst(position: Vector3) {
     this.haptics.trigger("rage");
-    this.audio.play("rage", 1.35);
+    this.audio.playRage(1.35);
     this.slowMotionTime = Math.max(this.slowMotionTime, 0.12);
     this.addCameraShake(1.05);
-    this.effects.push(new CombatEffect(this.scene, position.add(new Vector3(0, 0.28, 0)), "heavy", this.materials));
-    this.burstRageText(position.add(new Vector3(0, 1.1, 0)), 18, 1.24);
+    this.spawnEffect(position.add(new Vector3(0, 0.28, 0)), "heavy");
+    this.burstRageText(position.add(new Vector3(0, 1.1, 0)), 6, 1.24);
+  }
+
+  triggerDignityLoss(position: Vector3, playerSide: boolean) {
+    this.slowMotionTime = Math.max(this.slowMotionTime, 0.22);
+    this.addCameraShake(0.8);
+    this.audio.playDignityLoss(0.95);
+    this.haptics.triggerDignityLoss();
+    this.camera.radius = Math.max(this.camera.lowerRadiusLimit ?? 7, this.camera.radius - 0.9);
+    this.notify(playerSide ? "尊厳喪失・怒気獲得上昇" : "敵の尊厳を奪った", 1.65);
+    this.spawnEffect(position.add(new Vector3(0, 2.05, 0)), "head");
   }
 
   burstRageText(position: Vector3, count: number, scale = 1) {
-    for (let index = 0; index < count; index += 1) {
-      const theta = (index / count) * Math.PI * 2 + Math.random() * 0.24;
-      const speed = 1.4 + Math.random() * 2.5;
-      this.rageTexts.push(new RageTextEffect(this.scene, position, new Vector3(Math.cos(theta) * speed, 1.9 + Math.random() * 2.2, Math.sin(theta) * speed), scale * (0.72 + Math.random() * 0.62), index));
+    const limitedCount = Math.max(0, Math.min(6, Math.floor(count)));
+    for (let index = 0; index < limitedCount; index += 1) {
+      const theta = (index / limitedCount) * Math.PI * 2 + this.random() * 0.24;
+      const speed = 1.4 + this.random() * 2.5;
+      this.rageTexts.push(new RageTextEffect(this.scene, position, new Vector3(Math.cos(theta) * speed, 1.9 + this.random() * 2.2, Math.sin(theta) * speed), scale * (0.72 + this.random() * 0.62), index));
     }
+  }
+
+  spawnEffect(position: Vector3, kind: CombatEffectKind) {
+    const available = this.effectPool.get(kind) ?? [];
+    const effect = available.pop() ?? new CombatEffect(this.scene, kind, this.materials);
+    this.effectPool.set(kind, available);
+    effect.reset(position);
+    this.effects.push(effect);
+  }
+
+  private recycleEffect(effect: CombatEffect) {
+    const available = this.effectPool.get(effect.kind) ?? [];
+    if (available.length < 12) available.push(effect);
+    else effect.dispose();
+    this.effectPool.set(effect.kind, available);
   }
 
   clampToArena(position: Vector3) {
@@ -605,24 +819,55 @@ export class GameWorld {
   private emitHud(delta = 1) {
     this.hudClock -= delta;
     if (this.hudClock > 0) return;
-    this.hudClock = 0.06;
+    this.hudClock = 0.1;
+    const activeEnemy = this.enemies.find((enemy) => !enemy.removed && enemy.mode !== "dead") ?? null;
     const detail: HudPayload = {
       health: Math.ceil(this.player.health),
+      playerHealth: Math.ceil(this.player.health),
+      playerMaxHealth: DEFAULT_COMBAT_BALANCE.player.maxHealth,
       rage: Math.ceil(this.player.rage),
       kills: this.killCount,
-      combo: this.combo,
+      combo: this.session.score.combo,
       enemies: this.enemies.filter((enemy) => !enemy.removed && enemy.mode !== "dead").length,
       route: this.player.routeLabel,
       started: this.started,
       paused: this.paused,
       fallen: this.player.mode === "fallen",
-      challengeVisible: this.challengeTimer > 0 && this.started,
+      challengeVisible: this.challengeTimer > 0 && this.started && !this.completed,
       challenger: this.challenger,
       taunt: this.taunt,
       challengeProgress: this.challengeWindow > 0 ? 1 - this.challengeTimer / this.challengeWindow : 1,
       lockOn: this.lockTarget !== null,
+      playerName: this.session.playerName,
+      dignity: this.player.dignity.value,
+      playerDignity: this.player.dignity.value,
+      playerMaxDignity: this.player.dignity.max,
+      enemyCount: this.enemies.filter((enemy) => !enemy.removed && enemy.mode !== "dead").length,
+      enemyHealth: activeEnemy?.healthValue() ?? 0,
+      enemyMaxHealth: activeEnemy?.maxHealthValue() ?? 0,
+      enemyDignity: activeEnemy?.dignityValue() ?? 0,
+      enemyMaxDignity: 100,
+      enemyName: activeEnemy?.displayName() ?? this.challenger,
+      round: Math.min(enemyCharacterKeys.length, this.killCount + 1),
+      totalRounds: enemyCharacterKeys.length,
+      roundTotal: enemyCharacterKeys.length,
+      score: Math.round(this.session.score.total),
+      elapsed: this.session.score.elapsed,
+      elapsedSeconds: this.session.score.elapsed,
+      dodgeCooldown: this.player.dodgeCooldown,
+      dodgeReady: this.player.dodgeCooldown <= 0,
+      aimTarget: this.player.aimTarget,
+      heartOpen: activeEnemy?.heartIsOpen() ?? false,
+      lockTarget: activeEnemy?.displayName() ?? null,
+      notice: this.notice,
+      guardBreak: this.player.guardBreak,
+      counterReady: this.player.counterReady(),
+      loadState: this.assetsPrepared ? "ready" : "loading",
+      intermission: this.challengeTimer > 0 && this.started && !this.completed,
+      intermissionRemaining: Math.max(0, this.challengeTimer),
+      result: this.result,
     };
-    if (this.input.isDemo && new URLSearchParams(window.location.search).has("lockAudit") && this.lockAuditHudState !== detail.lockOn) {
+    if (this.input.isDemo && runtimeFlags.lockAudit && this.lockAuditHudState !== detail.lockOn) {
       this.lockAuditHudState = detail.lockOn;
       console.info(`[LockAudit] hud lockOn=${detail.lockOn ? "true" : "false"}`);
     }
@@ -630,13 +875,23 @@ export class GameWorld {
   }
 
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.auditTimers.forEach((timer) => window.clearTimeout(timer));
+    this.auditTimers.length = 0;
     window.removeEventListener("arena-command", this.onCommand);
+    window.removeEventListener("arena-auto-pause", this.onAutoPause);
+    window.removeEventListener("arena-audio-settings", this.onAudioSettings);
+    window.removeEventListener("arena-haptics-settings", this.onHapticsSettings);
     this.input.dispose();
     this.effects.forEach((effect) => effect.dispose());
+    this.effectPool.forEach((effects) => effects.forEach((effect) => effect.dispose()));
+    this.effectPool.clear();
     this.rageTexts.forEach((effect) => effect.dispose());
     this.enemies.forEach((enemy) => enemy.dispose());
     this.player.dispose();
     this.characters.dispose();
+    this.audio.dispose();
     this.materials.dispose();
   }
 }
@@ -659,6 +914,10 @@ class ArenaMaterials {
   readonly enemyIron: StandardMaterial;
   readonly warning: StandardMaterial;
   readonly impact: StandardMaterial;
+  readonly heart: StandardMaterial;
+  readonly dignity: StandardMaterial;
+  readonly dust: StandardMaterial;
+  readonly shadow: StandardMaterial;
   private readonly owned: StandardMaterial[] = [];
 
   constructor(scene: Scene) {
@@ -708,6 +967,17 @@ class ArenaMaterials {
     this.impact = make("impact", "#F9C46C");
     this.impact.emissiveColor = Color3.FromHexString("#EF9D3A");
     this.impact.alpha = 0.9;
+    this.heart = make("heartImpact", "#FF253E");
+    this.heart.emissiveColor = Color3.FromHexString("#D70F2B");
+    this.heart.alpha = 0.92;
+    this.dignity = make("dignityFragments", "#EBC77B");
+    this.dignity.emissiveColor = Color3.FromHexString("#8D5A20");
+    this.dignity.alpha = 0.88;
+    this.dust = make("arenaDust", "#7A4C2A");
+    this.dust.alpha = 0.42;
+    this.shadow = make("fighterShadow", "#070504");
+    this.shadow.alpha = 0.34;
+    this.shadow.disableLighting = true;
   }
 
   dispose() {
@@ -727,21 +997,37 @@ class Player {
   mode: PlayerMode = "idle";
   health = 100;
   rage = 0;
+  dignity: DignityState = createDignityState();
+  aimTarget: HitLocation = "torso";
+  dodgeCooldown = 0;
+  guardBreak = 0;
   routeLabel = "FIND THE OPENING";
   private attack: Attack | null = null;
   private dodgeTime = 0;
+  private dodgeVelocity = Vector3.Zero();
+  private afterDodgeWindow = 0;
+  private afterClashWindow = 0;
   private hurtCooldown = 0;
   private motionClock = 0;
   private guardTime = 0;
   private justGuardTime = 0;
   private counterWindow = 0;
   private animationTestClock = 0;
+  private attackSequence = 0;
+  private poopTransformed = false;
+  private dustClock = 0;
 
   constructor(private readonly world: GameWorld, position: Vector3) {
     this.root = new TransformNode("blockyPlayer", world.scene);
     this.root.position.copyFrom(position);
     this.root.rotation.y = Math.PI;
     const { scene, materials } = world;
+    const shadow = MeshBuilder.CreateDisc("playerFootShadow", { radius: 0.72, tessellation: 20, sideOrientation: Mesh.DOUBLESIDE }, scene);
+    shadow.parent = this.root;
+    shadow.position.y = 0.018;
+    shadow.rotation.x = Math.PI / 2;
+    shadow.scaling.z = 0.62;
+    shadow.material = materials.shadow;
     const legs = MeshBuilder.CreateBox("playerLegs", { width: 0.74, height: 0.58, depth: 0.46 }, scene);
     legs.parent = this.root;
     legs.position.y = 0.3;
@@ -790,8 +1076,13 @@ class Player {
 
   update(delta: number) {
     this.motionClock += delta;
+    this.dustClock = Math.max(0, this.dustClock - delta);
     this.hurtCooldown = Math.max(0, this.hurtCooldown - delta);
-    if (window.location.search.includes("animationTest")) {
+    this.dodgeCooldown = Math.max(0, this.dodgeCooldown - delta);
+    this.afterDodgeWindow = Math.max(0, this.afterDodgeWindow - delta);
+    this.afterClashWindow = Math.max(0, this.afterClashWindow - delta);
+    if (this.mode !== "guard") this.guardBreak = Math.max(0, this.guardBreak - delta * 10);
+    if (runtimeFlags.animationTest) {
       this.updateAnimationTest(delta);
       return;
     }
@@ -800,8 +1091,8 @@ class Player {
       this.playCharacterMotion("dead");
       return;
     }
-    const clashAudit = this.world.input.isDemo && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("clashAudit");
-    const combatAudit = this.world.input.isDemo && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("combatAudit");
+    const clashAudit = this.world.input.isDemo && runtimeFlags.clashAudit;
+    const combatAudit = this.world.input.isDemo && runtimeFlags.combatAudit;
     const demoGuardTarget = this.world.input.isDemo && !clashAudit && !combatAudit
       ? this.world.enemies.find((enemy) => enemy.requiresJustGuard && Vector3.DistanceSquared(enemy.root.position, this.root.position) < 10.5)
       : undefined;
@@ -814,26 +1105,48 @@ class Player {
       this.counterWindow -= delta;
       if (this.counterWindow <= 0 && !this.attack) this.routeLabel = "FIND THE OPENING";
     }
-    if (this.world.input.consume("rage") && !this.attack && this.mode !== "dodge" && this.rage >= 100) this.beginMusou();
-    if (this.world.input.isDemo && window.location.search.includes("autoMusou") && this.rage >= 100 && !this.attack && this.mode !== "dodge") this.beginMusou();
-    if (this.world.input.consume("dodge") && !this.attack && this.rage >= 12) {
+    if (!this.attack && this.mode !== "dodge" && this.world.input.consume("aim")) {
+      this.aimTarget = this.aimTarget === "torso" ? "head" : this.aimTarget === "head" ? "heart" : "torso";
+      this.routeLabel = `狙い：${targetLabel(this.aimTarget)}`;
+    }
+    if (!this.attack && this.mode !== "dodge" && this.rage >= 100 && this.world.input.consume("rage")) this.beginMusou();
+    if (this.world.input.isDemo && runtimeFlags.autoMusou && this.rage >= 100 && !this.attack && this.mode !== "dodge") this.beginMusou();
+    const dodgeCancelable = !this.attack || this.attack.time >= this.scaledMoveTime(this.attack.move.dodgeCancelAt);
+    if (this.dodgeCooldown <= 0 && this.mode !== "dodge" && dodgeCancelable && this.world.input.consume("dodge")) {
+      this.attack = null;
+      const rawMove = this.world.input.movement();
+      this.dodgeVelocity = this.world.movementDirection(rawMove.lengthSquared() > 0.02 ? rawMove : new Vector2(0, -1));
       this.mode = "dodge";
       this.dodgeTime = 0.32;
-      this.rage -= 12;
+      this.dodgeCooldown = 0.82;
+      this.afterDodgeWindow = 0.95;
     }
-    if (this.world.input.consume("guard") && !this.attack && this.mode !== "dodge") this.beginGuard();
-    if (this.world.input.consume("heavy")) {
+    const guardCancelable = !this.attack || this.attack.time >= this.scaledMoveTime(this.attack.move.guardCancelAt);
+    if (this.mode !== "dodge" && guardCancelable && this.world.input.consume("guard")) {
+      this.attack = null;
+      this.beginGuard();
+    }
+    const heavyChainOpen = this.attack?.kind === "light"
+      && this.attack.time >= this.scaledMoveTime(this.attack.move.chainOpen)
+      && this.attack.time <= this.scaledMoveTime(this.attack.move.chainClose);
+    const heavyAcceptable = this.counterWindow > 0 && !this.attack && this.mode !== "dodge"
+      || heavyChainOpen
+      || !this.attack && this.mode !== "dodge";
+    if (heavyAcceptable && this.world.input.peekAttack() === "heavy" && this.world.input.consumeAttack("heavy")) {
       if (this.counterWindow > 0 && !this.attack && this.mode !== "dodge") {
         this.beginCounter();
-      } else if (this.attack?.kind === "light" && this.attack.time > 0.1 && this.attack.time < this.attack.duration * 0.9) {
+      } else if (heavyChainOpen && this.attack?.kind === "light") {
         this.attack.queued = "heavy";
       } else if (!this.attack && this.mode !== "dodge") {
         this.beginAttack("heavy", 0);
       }
     }
     if (this.world.input.isDemo && this.counterWindow > 0 && !this.attack && this.mode !== "dodge") this.beginCounter();
-    if (this.world.input.consume("light")) {
-      if (this.attack?.kind === "light" && this.attack.time > 0.12 && this.attack.time < this.attack.duration * 0.84) {
+    const lightChainOpen = this.attack?.kind === "light"
+      && this.attack.time >= this.scaledMoveTime(this.attack.move.chainOpen)
+      && this.attack.time <= this.scaledMoveTime(this.attack.move.chainClose);
+    if ((lightChainOpen || !this.attack && this.mode !== "dodge") && this.world.input.peekAttack() === "light" && this.world.input.consumeAttack("light")) {
+      if (lightChainOpen && this.attack?.kind === "light") {
         this.attack.queued = "light";
       } else if (!this.attack && this.mode !== "dodge") {
         this.beginAttack("light", 1);
@@ -853,7 +1166,7 @@ class Player {
       }
     }
     if (this.mode === "guard") {
-      this.guardTime -= delta;
+      if (!this.world.input.isHeld("guard")) this.guardTime -= delta;
       this.justGuardTime = Math.max(0, this.justGuardTime - delta);
       this.weaponPivot.rotation.z = lerpAngle(this.weaponPivot.rotation.z, -1.2, clamp(delta * 13, 0, 1));
       this.weaponPivot.rotation.x = lerpAngle(this.weaponPivot.rotation.x, -0.72, clamp(delta * 13, 0, 1));
@@ -863,8 +1176,8 @@ class Player {
       }
     } else if (this.mode === "dodge") {
       this.dodgeTime -= delta;
-      const forward = forwardFromYaw(this.root.rotation.y);
-      this.root.position.addInPlace(forward.scale(delta * 13.5));
+      this.root.position.addInPlace(this.dodgeVelocity.scale(delta * 13.5));
+      if (this.dodgeVelocity.lengthSquared() > 0.01) this.root.rotation.y = lerpAngle(this.root.rotation.y, Math.atan2(this.dodgeVelocity.x, this.dodgeVelocity.z), clamp(delta * 15, 0, 1));
       this.root.rotation.z = Math.sin((0.32 - this.dodgeTime) * 20) * 0.18;
       if (this.dodgeTime <= 0) {
         this.mode = "idle";
@@ -873,11 +1186,15 @@ class Player {
     } else if (!this.attack) {
       const moving = move.length() > 0.05;
       if (moving) {
-        const direction = new Vector3(move.x, 0, move.y).normalize();
+        const direction = this.world.movementDirection(move);
         const desiredYaw = Math.atan2(direction.x, direction.z);
         this.root.rotation.y = lerpAngle(this.root.rotation.y, desiredYaw, clamp(delta * 10, 0, 1));
         this.root.position.addInPlace(direction.scale(delta * 7.4));
         this.mode = "move";
+        if (this.dustClock <= 0) {
+          this.dustClock = 0.2;
+          this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.08, 0)), "dust");
+        }
       } else {
         if (this.world.input.isDemo && demoTarget) {
           const toward = demoTarget.root.position.subtract(this.root.position);
@@ -894,9 +1211,20 @@ class Player {
     if (this.characterVisual) {
       this.characterVisual.position.y = bob * 0.45;
       this.characterVisual.rotation.z = lerpAngle(this.characterVisual.rotation.z, this.mode === "dodge" ? 0.22 : 0, clamp(delta * 12, 0, 1));
+      if (!this.attack) this.characterVisual.rotation.y = lerpAngle(this.characterVisual.rotation.y, 0, clamp(delta * 14, 0, 1));
     }
-    const motion: CharacterMotion = this.mode === "guard" ? "guard" : this.mode === "counter" ? "counter" : this.mode === "musou" ? "musou" : this.attack?.kind === "light" ? "light" : this.attack?.kind === "heavy" ? "heavy" : this.mode === "dodge" ? "move" : this.mode === "move" ? "move" : "idle";
-    this.playCharacterMotion(motion, motion === "idle" || motion === "move" || motion === "guard");
+    if (!this.attack) {
+      const motion: CharacterMotion = this.mode === "guard" ? "guard" : this.mode === "dodge" || this.mode === "move" ? "move" : "idle";
+      this.playCharacterMotion(motion, motion === "idle" || motion === "move" || motion === "guard");
+    } else {
+      this.characterVisual?.setEnabled(Boolean(this.characterAnimator));
+      this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !this.characterAnimator; });
+    }
+  }
+
+  private scaledMoveTime(moveTime: number) {
+    if (!this.attack) return 0;
+    return this.attack.duration * (moveTime / Math.max(0.08, this.attack.move.duration));
   }
 
   private playCharacterMotion(motion: CharacterMotion, loop = false, speedRatio = 1) {
@@ -915,7 +1243,7 @@ class Player {
       { label: "TEST · HURT", motion: "hurt", duration: 0.6, loop: false },
       { label: "TEST · DEAD", motion: "dead", duration: 0.8, loop: false },
     ];
-    const fixedMotion = new URLSearchParams(window.location.search).get("animationTestPhase") as CharacterMotion | null;
+    const fixedMotion = runtimeFlags.animationTestPhase as CharacterMotion | null;
     const fixedPhase = phases.find((phase) => phase.motion === fixedMotion);
     if (fixedPhase) {
       this.routeLabel = `${fixedPhase.label} · FIXED`;
@@ -936,22 +1264,38 @@ class Player {
   private beginAttack(kind: "light" | "heavy", stage: number) {
     const nextStage = kind === "light" ? (stage || 1) : 0;
     const isFinisher = kind === "heavy" && stage > 0;
-    const sourceDuration = this.characterAnimator?.duration(kind === "light" ? "light" : "heavy");
-    const duration = kind === "light"
-      ? sourceDuration ?? 0.42
-      : isFinisher
-        ? Math.max(0.82, sourceDuration ?? 0.94)
-        : sourceDuration ?? 0.78;
-    const hitAt = kind === "light" ? duration * 0.43 : isFinisher ? duration * 0.51 : duration * 0.56;
+    const targetEnemy = this.world.currentTarget();
+    const distance = targetEnemy ? Vector3.Distance(targetEnemy.root.position, this.root.position) : 5;
+    const inputDirection = this.world.input.movement();
+    const move = selectAttackMove({
+      kind,
+      stage: nextStage,
+      directionX: inputDirection.x,
+      directionY: inputDirection.y,
+      afterDodge: this.afterDodgeWindow > 0,
+      afterJustGuard: false,
+      afterClash: this.afterClashWindow > 0,
+      distance,
+      target: this.aimTarget,
+      targetStaggered: targetEnemy?.heartIsOpen() ?? false,
+      rageReady: this.rage >= 100,
+      sequence: this.attackSequence++,
+    });
+    const duration = this.characterAnimator?.durationNamed(move.name) ?? move.duration;
+    const hitAt = duration * (move.hitStart / move.duration);
     this.attack = {
       kind,
       stage: kind === "light" ? nextStage : stage,
       time: 0,
       duration,
       hitAt,
+      hitEndAt: duration * (move.hitEnd / move.duration),
       didHit: false,
+      connected: false,
       queued: null,
       pulse: 0,
+      move,
+      target: this.aimTarget,
     };
     this.routeLabel = isFinisher
       ? (stage >= 2 ? "WEAK · WEAK · HEAVY" : "WEAK · HEAVY")
@@ -962,32 +1306,42 @@ class Player {
       console.info(`[DemoCombo] fired kind=${kind} stage=${stage} route=${this.routeLabel}`);
     }
     this.mode = kind;
+    if (targetEnemy) {
+      const toward = targetEnemy.root.position.subtract(this.root.position);
+      this.root.rotation.y = Math.atan2(toward.x, toward.z);
+    }
+    this.characterAnimator?.playNamed(move.name, false, 1, true);
     this.world.audio.play(kind === "heavy" ? "heavy" : "swing", kind === "heavy" ? 1.05 : 0.72);
+    if (kind === "heavy") this.world.haptics.triggerStrong();
   }
 
   private beginGuard() {
     this.mode = "guard";
-    this.guardTime = 0.44;
-    this.justGuardTime = 0.16;
+    this.guardTime = 0.18;
+    this.justGuardTime = 0.145;
     this.routeLabel = "GUARD — MEET THE BLOW";
   }
 
   private beginCounter() {
     this.counterWindow = 0;
-    if (this.world.input.isDemo && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("combatAudit")) console.info("[CombatAudit] counter started");
-    const duration = this.characterAnimator?.duration("counter") ?? this.characterAnimator?.duration("light") ?? 0.72;
-    this.attack = { kind: "counter", stage: 0, time: 0, duration, hitAt: duration * 0.34, didHit: false, queued: null, pulse: 0 };
+    if (this.world.input.isDemo && runtimeFlags.combatAudit) console.info("[CombatAudit] counter started");
+    const move = selectAttackMove({ kind: "counter", stage: 0, directionX: 0, directionY: 1, afterDodge: false, afterJustGuard: true, afterClash: false, distance: 2.5, target: this.aimTarget, targetStaggered: true, rageReady: this.rage >= 100, sequence: this.attackSequence++ });
+    const duration = this.characterAnimator?.durationNamed(move.name) ?? move.duration;
+    this.attack = { kind: "counter", stage: 0, time: 0, duration, hitAt: duration * (move.hitStart / move.duration), hitEndAt: duration * (move.hitEnd / move.duration), didHit: false, connected: false, queued: null, pulse: 0, move, target: this.aimTarget };
     this.mode = "counter";
+    this.characterAnimator?.playNamed(move.name, false, 1.06, true);
     this.world.audio.play("counter", 1.12);
     this.routeLabel = "JUST GUARD · COUNTER";
   }
 
   private beginMusou() {
     this.rage = 0;
-    if (this.world.input.isDemo && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("combatAudit")) console.info("[CombatAudit] musou started rageSpent=100");
-    if (this.world.input.isDemo && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("adversarialAudit")) console.info("[AdversarialAudit] musou started rageSpent=100");
-    this.attack = { kind: "musou", stage: 0, time: 0, duration: 1.42, hitAt: 0, didHit: false, queued: null, pulse: 0 };
+    if (this.world.input.isDemo && runtimeFlags.combatAudit) console.info("[CombatAudit] musou started rageSpent=100");
+    if (this.world.input.isDemo && runtimeFlags.adversarialAudit) console.info("[AdversarialAudit] musou started rageSpent=100");
+    const move = selectAttackMove({ kind: "musou", stage: 0, directionX: 0, directionY: 1, afterDodge: false, afterJustGuard: false, afterClash: false, distance: 2.5, target: this.aimTarget, targetStaggered: this.world.currentTarget()?.heartIsOpen() ?? false, rageReady: true, sequence: this.attackSequence++ });
+    this.attack = { kind: "musou", stage: 0, time: 0, duration: 1.28, hitAt: 0, hitEndAt: 1.28, didHit: false, connected: false, queued: null, pulse: 0, move, target: this.aimTarget };
     this.mode = "musou";
+    this.characterAnimator?.playNamed(move.name, false, 1.08, true);
     this.routeLabel = "怒破 — RAGE RELEASE";
     this.world.triggerRageBurst(this.root.position);
   }
@@ -997,6 +1351,7 @@ class Player {
       this.weaponPivot.rotation.z = lerpAngle(this.weaponPivot.rotation.z, 0.22, clamp(delta * 10, 0, 1));
       return;
     }
+    const previousTime = this.attack.time;
     this.attack.time += delta;
     const phase = clamp(this.attack.time / this.attack.duration, 0, 1);
     const isFinisher = this.attack.kind === "heavy" && this.attack.stage > 0;
@@ -1013,20 +1368,43 @@ class Player {
         : Math.sin(phase * Math.PI) * 2.95;
     this.weaponPivot.rotation.z = isMusou ? swing : isCounter ? -2.1 + swing : isFinisher ? -1.25 + swing : -0.55 + swing;
     this.weaponPivot.rotation.x = this.attack.kind === "heavy" || isCounter || isMusou ? -Math.sin(phase * Math.PI * (isMusou ? 4 : 1)) * (isFinisher || isCounter || isMusou ? 1.05 : 0.7) : 0;
-    this.root.rotation.y += isMusou ? delta * 8.2 : 0;
-    this.root.position.addInPlace(forwardFromYaw(this.root.rotation.y).scale(delta * (isCounter ? 7.4 : isFinisher ? 4.8 : this.attack.kind === "heavy" ? 2.2 : 1.0)));
+    if (this.characterVisual && this.attack.move.rotation !== 0) {
+      this.characterVisual.rotation.y = Math.sin(phase * Math.PI) * this.attack.move.rotation;
+    }
     if (isMusou) {
-      const pulseTimes = [0.13, 0.42, 0.75, 1.08];
+      const target = this.world.currentTarget();
+      if (target) {
+        const toward = target.root.position.subtract(this.root.position);
+        this.root.rotation.y = lerpAngle(this.root.rotation.y, Math.atan2(toward.x, toward.z), clamp(delta * 18, 0, 1));
+      }
+    }
+    const configuredAdvance = this.attack.move.forward / Math.max(0.18, this.attack.duration);
+    const advanceScale = isCounter ? 1.75 : isFinisher ? 1.3 : this.attack.kind === "heavy" ? 1.05 : 0.72;
+    this.root.position.addInPlace(forwardFromYaw(this.root.rotation.y).scale(delta * configuredAdvance * advanceScale));
+    if (isMusou) {
+      const pulseTimes = [0.18, 0.56, 0.98];
       const nextPulse = pulseTimes[this.attack.pulse];
       if (nextPulse !== undefined && this.attack.time >= nextPulse) {
-        const radius = 5.8 + this.attack.pulse * 0.9;
-        const hit = this.world.hitEnemiesAll(this.root.position, radius, 8.7 + this.attack.pulse * 1.35, 6.1 + this.attack.pulse, this.attack.pulse === 0 ? 9 : 5);
-        this.world.effects.push(new CombatEffect(this.world.scene, this.root.position.add(new Vector3(0, 0.34, 0)), "heavy", this.world.materials));
-        this.world.burstRageText(this.root.position.add(new Vector3(0, 1.1, 0)), this.attack.pulse === 0 ? 16 : 8, 1.12 + this.attack.pulse * 0.12);
+        const forward = forwardFromYaw(this.root.rotation.y);
+        const finalPulse = this.attack.pulse === pulseTimes.length - 1;
+        const hit = this.world.hitEnemies(
+          this.root.position.add(forward.scale(0.5)),
+          forward,
+          finalPulse ? 5.4 : 4.35,
+          finalPulse ? -0.05 : 0.15,
+          finalPulse ? 10.2 : 5.6 + this.attack.pulse * 1.2,
+          finalPulse ? 6.2 : 1.4,
+          "heavy",
+          this.attack.target,
+          this.attack.move,
+        );
+        if (hit > 0) this.attack.connected = true;
+        this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.34, 0)), "heavy");
+        this.world.burstRageText(this.root.position.add(new Vector3(0, 1.1, 0)), finalPulse ? 4 : 2, 1.12 + this.attack.pulse * 0.12);
         this.world.addCameraShake(0.66 + hit * 0.06);
         this.attack.pulse += 1;
       }
-    } else if (!this.attack.didHit && this.attack.time >= this.attack.hitAt) {
+    } else if (!this.attack.didHit && previousTime <= this.attack.hitEndAt && this.attack.time >= this.attack.hitAt) {
       this.attack.didHit = true;
       const forward = forwardFromYaw(this.root.rotation.y);
       const hit = this.world.hitEnemies(
@@ -1037,18 +1415,26 @@ class Player {
         isCounter ? 11.5 : isFinisher ? 6.6 : this.attack.kind === "heavy" ? 3.8 : 1.25 + this.attack.stage * 0.16,
         isCounter ? 7.5 : isFinisher ? 4.3 : this.attack.kind === "heavy" ? 2.2 : 0.8,
         isCounter || isFinisher || this.attack.kind === "heavy" ? "heavy" : "hit",
+        this.attack.target,
+        this.attack.move,
       );
+      this.attack.connected = hit > 0;
       if (this.world.consumeAttackClash()) {
         this.cancelAttackForClash();
         return;
       }
       if (isFinisher || isCounter) {
         this.world.addCameraShake((isCounter ? 0.9 : 0.58) + hit * 0.1);
-        this.world.effects.push(new CombatEffect(this.world.scene, this.root.position.add(forward.scale(2.2)).add(new Vector3(0, 0.3, 0)), "heavy", this.world.materials));
+        this.world.spawnEffect(this.root.position.add(forward.scale(2.2)).add(new Vector3(0, 0.3, 0)), "heavy");
       }
-      if (hit === 0) this.world.effects.push(new CombatEffect(this.world.scene, this.root.position.add(forward.scale(2.0)).add(new Vector3(0, 1.1, 0)), "miss", this.world.materials));
+      if (hit === 0) {
+        this.world.session.recordMiss();
+        this.world.audio.playWhiff(this.attack.kind === "heavy" || isCounter ? 1.15 : 0.82);
+        this.world.spawnEffect(this.root.position.add(forward.scale(2.0)).add(new Vector3(0, 1.1, 0)), "miss");
+      }
     }
-    if (this.attack.time >= this.attack.duration) {
+    const recovery = isMusou ? 0 : this.attack.connected ? this.attack.move.hitRecovery : this.attack.move.whiffRecovery;
+    if (this.attack.time >= this.attack.duration + recovery) {
       const queued = this.attack.queued;
       const chain = queued === "light" && this.attack.kind === "light" && this.attack.stage < 3;
       const finisher = queued === "heavy" && this.attack.kind === "light";
@@ -1079,8 +1465,9 @@ class Player {
   }
 
   prepareAttackClashAudit() {
-    const duration = this.characterAnimator?.duration("heavy") ?? 0.72;
-    this.attack = { kind: "heavy", stage: 0, time: duration * 0.52, duration, hitAt: duration * 0.43, didHit: false, queued: null, pulse: 0 };
+    const move = selectAttackMove({ kind: "heavy", stage: 0, directionX: 0, directionY: 1, afterDodge: false, afterJustGuard: false, afterClash: false, distance: 2.5, target: "torso", targetStaggered: false, rageReady: false, sequence: this.attackSequence++ });
+    const duration = this.characterAnimator?.durationNamed(move.name) ?? move.duration;
+    this.attack = { kind: "heavy", stage: 0, time: duration * 0.52, duration, hitAt: duration * 0.43, hitEndAt: duration * 0.66, didHit: false, connected: false, queued: null, pulse: 0, move, target: "torso" };
     this.mode = "heavy";
     this.routeLabel = "AUDIT · ATTACK CLASH";
   }
@@ -1096,10 +1483,11 @@ class Player {
     this.mode = "idle";
     this.weaponPivot.rotation.z = 0;
     this.weaponPivot.rotation.x = 0;
+    this.afterClashWindow = 0.8;
     this.routeLabel = "ATTACK CLASH — CANCEL!";
   }
 
-  takeDamage(amount: number, from: Vector3, attacker?: BarbarianEnemy) {
+  takeDamage(amount: number, from: Vector3, attacker?: BarbarianEnemy, hitLocation: HitLocation = "torso", dignityDamage = hitLocation === "head" ? 14 : 3) {
     if (this.mode === "dodge" || this.mode === "fallen" || this.hurtCooldown > 0) return "evade" as const;
     if (this.mode === "guard") {
       if (this.justGuardTime > 0) {
@@ -1107,35 +1495,77 @@ class Player {
         this.justGuardTime = 0;
         this.counterWindow = 0.72;
         this.mode = "idle";
-        this.addRage(26);
+        this.addRage(this.dignity.value <= 0 ? 34 : 26);
         this.routeLabel = "JUST GUARD — COUNTER!";
         this.world.triggerJustGuard(this.root.position);
         attacker?.openToCounter();
         return "just" as const;
       }
-      this.addRage(4);
+      this.guardBreak = clamp(this.guardBreak + amount * 7.5, 0, 100);
+      if (this.guardBreak >= 100) {
+        this.mode = "idle";
+        this.guardTime = 0;
+        this.justGuardTime = 0;
+        this.routeLabel = "防御崩れ";
+        const brokenDamage = amount * 0.55;
+        this.health = Math.max(0, this.health - brokenDamage);
+        this.world.session.recordDamageTaken(brokenDamage);
+        this.hurtCooldown = 0.45;
+        if (this.health <= 0) this.mode = "fallen";
+        return "hit" as const;
+      }
+      const chipDamage = amount * 0.16;
+      this.health = Math.max(0, this.health - chipDamage);
+      this.world.session.recordDamageTaken(chipDamage);
+      this.addRage(1);
       this.world.haptics.trigger("guard");
-      this.world.audio.play("guard", 0.72);
-      this.world.effects.push(new CombatEffect(this.world.scene, this.root.position.add(new Vector3(0, 1.1, 0)), "guard", this.world.materials));
+      this.world.audio.playDefense(0.72);
+      this.world.spawnEffect(this.root.position.add(new Vector3(0, 1.1, 0)), "guard");
       return "guard" as const;
     }
     this.hurtCooldown = 0.52;
     this.world.haptics.trigger("hurt");
-    this.world.audio.play("hurt", 0.9);
+    this.world.audio.playDamage(0.9);
     this.health = Math.max(0, this.health - amount);
+    this.world.session.recordDamageTaken(amount);
+    const beforeDignity = this.dignity.value;
+    this.dignity = applyDignityDamage(this.dignity, dignityDamage);
+    const lostDignity = beforeDignity - this.dignity.value;
+    if (lostDignity > 0) this.world.session.recordDignityLoss(lostDignity);
+    if (isDignityLost(this.dignity) && !this.poopTransformed) this.transformToPoop();
     this.root.position.addInPlace(from.scale(0.28));
     this.world.addCameraShake(0.5);
-    this.world.effects.push(new CombatEffect(this.world.scene, this.root.position.add(new Vector3(0, 1.1, 0)), "hurt", this.world.materials));
+    this.world.spawnEffect(this.root.position.add(new Vector3(0, 1.1, 0)), "hurt");
     if (this.health <= 0) this.mode = "fallen";
     return "hit" as const;
   }
 
   addRage(amount: number) {
-    this.rage = clamp(this.rage + amount, 0, 100);
+    const comebackMultiplier = this.dignity.value <= 0 ? 1.25 : 1;
+    this.rage = clamp(this.rage + amount * comebackMultiplier, 0, 100);
+  }
+
+  counterReady() {
+    return this.counterWindow > 0;
+  }
+
+  private transformToPoop() {
+    this.poopTransformed = true;
+    this.world.session.recordPoopTransformation();
+    this.world.triggerDignityLoss(this.root.position, true);
+    const previousAnimator = this.characterAnimator;
+    this.world.characters.attach("poop", this.root, 0.84, (visual, animator) => {
+      this.characterVisual = visual;
+      this.characterAnimator = animator;
+      if (this.attack) animator.playNamed(this.attack.move.name, false, 1, true);
+      else this.playCharacterMotion(this.mode === "fallen" ? "dead" : this.mode === "guard" ? "guard" : "idle", this.mode !== "fallen");
+      previousAnimator?.dispose();
+    });
   }
 
   dispose() {
-    this.root.dispose(false, true);
+    this.characterAnimator?.dispose();
+    this.root.dispose(false, false);
   }
 }
 
@@ -1145,8 +1575,10 @@ class BarbarianEnemy {
   mode: EnemyMode = "spawn";
   removed = false;
   private health: number;
+  private readonly maxHealth: number;
+  private dignity: DignityState = createDignityState();
   private timer = 0;
-  private actionClock = Math.random() * 10;
+  private actionClock = 0;
   private dealtDamage = false;
   private rewarded = false;
   private readonly torso: Mesh;
@@ -1159,18 +1591,42 @@ class BarbarianEnemy {
   private characterAnimator: CharacterAnimator | null = null;
   private outlineActive = false;
   private animationTestClock = 0;
-  private readonly profile: EnemyProfile;
+  private readonly presentation: EnemyPresentation;
+  private readonly balanceProfile: EnemyProfile;
+  private readonly baseScale: number;
   private entryPoseClock = 0;
   private entrySoundPlayed = false;
+  private heartOpenTime = 0;
+  private poopTransformed = false;
+  private attackCursor = 0;
+  private currentAttackMove: AttackMove | null = null;
+  private currentAttackDuration = 0.72;
+  private telegraphDuration = 0.58;
+  private attackConnected = false;
+  private chargeDirection = Vector3.Zero();
+  private chargeTrailClock = 0;
+  private feintUsed = false;
+  private readonly heartMeshes: Mesh[] = [];
+  private readonly hitMeshes: Record<HitLocation, Mesh[]> = { head: [], torso: [], heart: [] };
 
   constructor(private readonly world: GameWorld, position: Vector3, spawnDelay: number, readonly variant: EnemyCharacterKey) {
     const { scene, materials } = world;
-    this.profile = enemyProfiles[variant];
+    this.presentation = enemyPresentations[variant];
+    this.balanceProfile = enemyProfileFor(variant) ?? DEFAULT_ENEMY_ROSTER[0];
+    this.actionClock = world.random() * 10;
     this.root = new TransformNode("texturedBarbarian", scene);
     this.root.position.copyFrom(position);
-    this.root.rotation.y = Math.random() * Math.PI * 2;
-    this.root.scaling.setAll(0.94 + Math.random() * 0.16);
-    this.health = 3.1 + Math.random() * 0.9;
+    this.root.rotation.y = world.random() * Math.PI * 2;
+    this.baseScale = 0.94 + world.random() * 0.16;
+    this.root.scaling.setAll(this.baseScale);
+    const shadow = MeshBuilder.CreateDisc("enemyFootShadow", { radius: 0.78, tessellation: 20, sideOrientation: Mesh.DOUBLESIDE }, scene);
+    shadow.parent = this.root;
+    shadow.position.y = 0.018;
+    shadow.rotation.x = Math.PI / 2;
+    shadow.scaling.z = 0.65;
+    shadow.material = materials.shadow;
+    this.maxHealth = DEFAULT_COMBAT_BALANCE.enemy.baseHealth * this.balanceProfile.healthMultiplier;
+    this.health = this.maxHealth;
     this.timer = spawnDelay + 0.36;
 
     const legs = MeshBuilder.CreateCylinder("barbarianLegs", { height: 0.8, diameterTop: 0.33, diameterBottom: 0.4, tessellation: 8 }, scene);
@@ -1194,6 +1650,8 @@ class BarbarianEnemy {
     head.parent = this.root;
     head.position.y = 2.25;
     head.material = materials.enemySkin;
+    this.hitMeshes.head.push(head);
+    this.hitMeshes.torso.push(this.torso);
     const hair = MeshBuilder.CreateBox("barbarianMohawk", { width: 0.24, height: 0.16, depth: 0.56 }, scene);
     hair.parent = this.root;
     hair.position.set(0, 2.54, 0);
@@ -1250,18 +1708,36 @@ class BarbarianEnemy {
     shoulderPlate.position.set(-0.55, 1.82, 0.03);
     shoulderPlate.scaling.y = 0.45;
     shoulderPlate.material = materials.enemyBronze;
-    this.warningRing = MeshBuilder.CreateTorus("attackTelegraph", { diameter: 1.65, thickness: 0.06, tessellation: 20 }, scene);
+    this.warningRing = variant === "rhinoceros" || variant === "crocodile"
+      ? MeshBuilder.CreateBox("attackTelegraphStrip", {
+          width: variant === "rhinoceros" ? 1.45 : 1.9,
+          height: 0.035,
+          depth: variant === "rhinoceros" ? 8.5 : 5.2,
+        }, scene)
+      : variant === "hippopotamus"
+        ? MeshBuilder.CreateTorus("attackTelegraphCircle", { diameter: 5.7, thickness: 0.1, tessellation: 28 }, scene)
+        : MeshBuilder.CreateDisc("attackTelegraphFan", { radius: 2.6, tessellation: 28, arc: 0.34, sideOrientation: Mesh.DOUBLESIDE }, scene);
     this.warningRing.parent = this.root;
-    this.warningRing.position.y = 0.055;
-    this.warningRing.rotation.x = Math.PI / 2;
+    if (variant === "rhinoceros" || variant === "crocodile") {
+      this.warningRing.position.set(0, 0.055, variant === "rhinoceros" ? 4.1 : 2.5);
+    } else if (variant === "hippopotamus") {
+      this.warningRing.position.y = 0.055;
+      this.warningRing.rotation.x = Math.PI / 2;
+    } else {
+      this.warningRing.position.set(0, 0.045, 1.05);
+      this.warningRing.rotation.x = Math.PI / 2;
+      this.warningRing.rotation.y = Math.PI * 0.33;
+    }
     this.warningRing.material = materials.warning;
     this.warningRing.isVisible = false;
+    this.heartMeshes.push(this.torso);
     this.outlineMeshes.push(...this.root.getChildMeshes(false).filter((mesh): mesh is Mesh => mesh instanceof Mesh && mesh !== this.warningRing));
     this.fallbackMeshes.push(...this.outlineMeshes);
     world.characters.attach(this.variant, this.root, 0.82, (visual, animator) => {
       this.characterVisual = visual;
       this.characterAnimator = animator;
       this.outlineMeshes.push(...visual.getChildMeshes(false).filter((mesh): mesh is Mesh => mesh instanceof Mesh));
+      this.registerVisualHitMeshes(visual);
       this.outlineActive = false;
       this.setRageOutline(this.world.player.rage >= 100);
       this.playCharacterMotion("idle", true);
@@ -1280,7 +1756,9 @@ class BarbarianEnemy {
 
   update(delta: number) {
     this.actionClock += delta;
-    if (window.location.search.includes("animationTest")) {
+    this.heartOpenTime = Math.max(0, this.heartOpenTime - delta);
+    this.updateHeartCue();
+    if (runtimeFlags.animationTest) {
       this.updateAnimationTest(delta);
       return;
     }
@@ -1310,17 +1788,18 @@ class BarbarianEnemy {
       if (!this.entrySoundPlayed && (this.world.isStarted() || this.world.input.isDemo)) {
         this.entrySoundPlayed = true;
         const pan = this.world.entryPanFor(this.root.position);
-        this.world.audio.playEnemyEntry(this.variant, this.profile.roarIntensity, pan);
+        this.world.audio.playEnemyEntry(this.variant, this.presentation.roarIntensity, pan);
         this.world.recordEnemyEntryRoar(this.variant, pan);
       }
-      this.playCharacterMotion(this.profile.entryMotion, false, 0.82);
+      this.playCharacterMotion(this.presentation.entryMotion, false, 0.82);
       this.timer -= delta;
       const reveal = clamp(1 - Math.max(this.timer, 0) / 0.36, 0.15, 1);
-      this.root.scaling.setAll(reveal * 0.9);
-      this.root.rotation.z = Math.sin(this.entryPoseClock * 5.5) * this.profile.entryLean;
-      this.weaponPivot.rotation.z = this.profile.entryLean * 3.5;
+      this.root.scaling.setAll(reveal * this.baseScale);
+      this.root.rotation.z = Math.sin(this.entryPoseClock * 5.5) * this.presentation.entryLean;
+      this.weaponPivot.rotation.z = this.presentation.entryLean * 3.5;
       if (this.timer <= 0) {
         this.mode = "approach";
+        this.root.scaling.setAll(this.baseScale);
         this.root.rotation.z = 0;
         this.weaponPivot.rotation.z = 0;
       }
@@ -1332,56 +1811,120 @@ class BarbarianEnemy {
     if (distance > 0.01) this.root.rotation.y = lerpAngle(this.root.rotation.y, Math.atan2(flatToPlayer.x, flatToPlayer.z), clamp(delta * 5.2, 0, 1));
 
     if (this.mode === "approach") {
-      this.playCharacterMotion("move", true, 1.05);
-      if (distance > 2.25) {
+      const engageDistance = this.variant === "rhinoceros" ? 10.5 : this.variant === "crocodile" ? 3.9 : this.variant === "hippopotamus" ? 3.35 : 2.75;
+      this.playCharacterMotion("move", true, 0.9 + this.balanceProfile.speedMultiplier * 0.18);
+      if (distance > engageDistance) {
         const direction = flatToPlayer.normalize();
         const separation = this.world.separationFor(this);
-        const velocity = direction.scale(2.3 + Math.sin(this.actionClock * 2.1) * 0.14).addInPlace(separation);
+        const lateral = this.variant === "lion"
+          ? new Vector3(direction.z, 0, -direction.x).scale(Math.sin(this.actionClock * 3.4) * 0.8)
+          : Vector3.Zero();
+        const velocity = direction
+          .scale(DEFAULT_COMBAT_BALANCE.enemy.moveSpeed * this.balanceProfile.speedMultiplier + Math.sin(this.actionClock * 2.1) * 0.12)
+          .addInPlace(lateral)
+          .addInPlace(separation);
         this.root.position.addInPlace(velocity.scale(delta));
         this.world.clampToArena(this.root.position);
         this.torso.rotation.z = Math.sin(this.actionClock * 9) * 0.05;
       } else {
-        this.mode = "telegraph";
-        this.timer = 0.48 + Math.random() * 0.2;
-        this.warningRing.isVisible = true;
+        this.beginTelegraph();
       }
       return;
     }
     if (this.mode === "telegraph") {
       this.playCharacterMotion("guard", true, 1.15);
       this.timer -= delta;
-      this.warningRing.scaling.setAll(1 + Math.sin(this.actionClock * 18) * 0.08);
+      const pulse = 1 + Math.sin(this.actionClock * (this.variant === "lion" ? 30 : 18)) * 0.08;
+      this.warningRing.scaling.setAll(pulse);
+      this.warningRing.isVisible = this.variant !== "lion" || Math.sin(this.actionClock * 32) > -0.4;
       this.weaponPivot.rotation.z = -Math.sin((1 - this.timer) * 2) * 0.9;
-      if (this.timer <= 0) {
-        this.mode = "strike";
-        this.timer = this.characterAnimator?.duration("heavy", 1.25) ?? 0.35;
-        this.dealtDamage = false;
+      if (this.variant === "lion" && !this.feintUsed && this.timer <= this.telegraphDuration * 0.48) {
+        this.feintUsed = true;
+        this.timer += 0.28;
         this.warningRing.isVisible = false;
+        this.world.notify("ライオンのフェイント", 0.45);
+        return;
+      }
+      if (this.timer <= 0) {
+        this.beginStrike(flatToPlayer);
       }
       return;
     }
     if (this.mode === "strike") {
-      this.playCharacterMotion("heavy", false, 1.25);
-      const strikeDuration = this.characterAnimator?.duration("heavy", 1.25) ?? 0.35;
+      this.playCurrentAttack(false);
       this.timer -= delta;
-      const strikeProgress = clamp(1 - this.timer / strikeDuration, 0, 1);
+      const strikeProgress = clamp(1 - this.timer / this.currentAttackDuration, 0, 1);
       this.weaponPivot.rotation.z = Math.sin(strikeProgress * Math.PI) * 1.7;
-      if (!this.dealtDamage && strikeProgress >= 0.52) {
+      const hitFraction = this.currentAttackMove ? this.currentAttackMove.hitStart / this.currentAttackMove.duration : 0.52;
+      if (!this.dealtDamage && strikeProgress >= hitFraction) {
         this.dealtDamage = true;
         this.world.audio.play("heavy", 0.9);
-        if (distance < 3.05) {
+        if (distance < this.attackRange()) {
           if (this.world.player.isAttackClashActive()) {
             this.world.player.cancelAttackForClash();
             this.cancelAttackForClash();
             this.world.triggerAttackClash(Vector3.Lerp(this.world.player.root.position, this.root.position, 0.5));
           } else {
-            this.world.player.takeDamage(7 + Math.random() * 3, flatToPlayer.normalize(), this);
+            const location = this.attackLocation();
+            const damage = DEFAULT_COMBAT_BALANCE.enemy.attackDamage * this.balanceProfile.damageMultiplier * (0.94 + this.world.random() * 0.12);
+            const outcome = this.world.player.takeDamage(damage, flatToPlayer.normalize(), this, location, this.dignityPressure(location));
+            this.attackConnected = outcome !== "evade";
           }
         }
       }
       if (this.timer <= 0) {
         this.mode = "recover";
-        this.timer = 0.42;
+        this.timer = this.recoveryDuration();
+        if (!this.attackConnected) this.openHeart(this.whiffOpeningDuration(), "大技の空振り・心臓露出");
+      }
+      return;
+    }
+    if (this.mode === "charge") {
+      this.playCurrentAttack(false);
+      this.timer -= delta;
+      this.chargeTrailClock -= delta;
+      if (this.health < this.maxHealth * 0.5 && !this.dealtDamage) {
+        const corrected = flatToPlayer.lengthSquared() > 0.01 ? flatToPlayer.normalize() : this.chargeDirection;
+        this.chargeDirection = Vector3.Lerp(this.chargeDirection, corrected, clamp(delta * 0.48, 0, 1)).normalize();
+      }
+      this.root.rotation.y = Math.atan2(this.chargeDirection.x, this.chargeDirection.z);
+      this.root.position.addInPlace(this.chargeDirection.scale(delta * (this.health < this.maxHealth * 0.5 ? 11.6 : 10.2)));
+      if (this.chargeTrailClock <= 0) {
+        this.chargeTrailClock = 0.18;
+        this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.12, 0)), "miss");
+      }
+      const chargeDistance = Vector3.Distance(this.root.position, this.world.player.root.position);
+      if (!this.dealtDamage && chargeDistance < 1.35) {
+        this.dealtDamage = true;
+        const toPlayerNow = this.world.player.root.position.subtract(this.root.position);
+        toPlayerNow.y = 0;
+        const outcome = this.world.player.takeDamage(
+          DEFAULT_COMBAT_BALANCE.enemy.attackDamage * this.balanceProfile.damageMultiplier * 1.24,
+          toPlayerNow.lengthSquared() > 0.01 ? toPlayerNow.normalize() : this.chargeDirection,
+          this,
+          "torso",
+          this.dignityPressure("torso") * 1.4,
+        );
+        this.attackConnected = outcome !== "evade";
+        if (this.attackConnected) {
+          this.mode = "recover";
+          this.timer = 1.05;
+          return;
+        }
+      }
+      if (Math.hypot(this.root.position.x, this.root.position.z) >= ARENA_RADIUS - 0.3) {
+        this.world.clampToArena(this.root.position);
+        this.mode = "stagger";
+        this.timer = 2.65;
+        this.openHeart(2.65, "壁へ激突・心臓露出");
+        this.world.addCameraShake(0.85);
+        this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.3, 0)), "heavy");
+        return;
+      }
+      if (this.timer <= 0) {
+        this.mode = "recover";
+        this.timer = 1.05;
+        if (!this.attackConnected) this.openHeart(1.45, "突進の空振り・心臓露出");
       }
       return;
     }
@@ -1393,19 +1936,147 @@ class BarbarianEnemy {
     }
   }
 
+  private updateHeartCue() {
+    for (const mesh of this.heartMeshes) {
+      if (mesh.isDisposed()) continue;
+      if (this.heartOpenTime > 0) {
+        mesh.renderOutline = true;
+        mesh.outlineColor = Color3.FromHexString("#FF334F");
+        mesh.outlineWidth = 0.12 + Math.sin(this.actionClock * 16) * 0.025;
+      } else if (this.outlineActive) {
+        mesh.renderOutline = true;
+        mesh.outlineColor = Color3.FromHexString("#FFE1A0");
+        mesh.outlineWidth = 0.085;
+      } else {
+        mesh.renderOutline = false;
+        mesh.outlineWidth = 0;
+      }
+    }
+  }
+
+  private registerVisualHitMeshes(visual: TransformNode) {
+    const meshes = visual.getChildMeshes(false).filter((mesh): mesh is Mesh => mesh instanceof Mesh);
+    const collect = (pattern: RegExp, preferred: RegExp) => meshes
+      .filter((mesh) => pattern.test(mesh.name))
+      .sort((left, right) => Number(preferred.test(right.name)) - Number(preferred.test(left.name)));
+    const head = collect(/head|skull|face|jaw|beak|muzzle|horn|mane/i, /head$/i);
+    const torso = collect(/torso|chest|pectoral|abdomen|spine|belly|trunk/i, /torso$/i);
+    const heart = collect(/heart|cavity|aorta/i, /heartbody$/i);
+    if (head.length > 0) this.hitMeshes.head = head;
+    if (torso.length > 0) this.hitMeshes.torso = torso;
+    if (heart.length > 0) this.hitMeshes.heart = heart;
+    this.heartMeshes.push(...heart);
+  }
+
+  private beginTelegraph() {
+    const attackSet = ENEMY_ATTACK_SETS[this.variant];
+    const lowHealthBonus = this.variant === "gorilla" && this.health <= this.maxHealth * 0.5 ? 1 : 0;
+    const index = (this.attackCursor + lowHealthBonus) % attackSet.length;
+    const shouldFeint = this.variant === "lion" && this.attackCursor % 2 === 0;
+    const name = attackSet[index];
+    this.attackCursor += 1;
+    this.currentAttackMove = ATTACK_BY_NAME.get(name) ?? null;
+    this.telegraphDuration = DEFAULT_COMBAT_BALANCE.enemy.telegraphSeconds * this.balanceProfile.telegraphMultiplier;
+    if (this.variant === "lion") this.telegraphDuration *= 0.72;
+    if (this.variant === "bear") this.telegraphDuration *= 1.15;
+    this.timer = this.telegraphDuration;
+    this.feintUsed = !shouldFeint;
+    this.mode = "telegraph";
+    this.warningRing.isVisible = true;
+    if (this.variant === "rhinoceros") this.world.audio.playRage(0.45);
+    else if (this.variant === "hippopotamus" || this.variant === "bear") this.world.audio.play("heavy", 0.52);
+    else if (this.variant === "crocodile") this.world.audio.playWhiff(0.55);
+    else this.world.audio.play("guard", 0.48);
+  }
+
+  private beginStrike(flatToPlayer: Vector3) {
+    const speedRatio = this.variant === "lion" ? 1.18 : this.variant === "bear" || this.variant === "hippopotamus" ? 0.88 : 1;
+    if (this.variant === "rhinoceros") {
+      this.mode = "charge";
+      this.timer = this.health <= this.maxHealth * 0.5 ? 4.4 : 4.05;
+      this.currentAttackDuration = this.timer;
+      this.chargeDirection = flatToPlayer.lengthSquared() > 0.01 ? flatToPlayer.normalize() : forwardFromYaw(this.root.rotation.y);
+      this.chargeTrailClock = 0;
+    } else {
+      this.mode = "strike";
+      this.currentAttackDuration = this.currentAttackMove
+        ? this.characterAnimator?.durationNamed(this.currentAttackMove.name, speedRatio) ?? this.currentAttackMove.duration / speedRatio
+        : this.characterAnimator?.duration("heavy", speedRatio) ?? 0.72;
+      this.timer = this.currentAttackDuration;
+    }
+    this.dealtDamage = false;
+    this.attackConnected = false;
+    this.warningRing.isVisible = false;
+    this.playCurrentAttack(true, speedRatio);
+  }
+
+  private playCurrentAttack(restart: boolean, speedRatio = 1) {
+    const played = this.currentAttackMove
+      ? this.characterAnimator?.playNamed(this.currentAttackMove.name, false, speedRatio, restart) ?? false
+      : false;
+    if (!played) this.playCharacterMotion("heavy", false, speedRatio);
+    this.characterVisual?.setEnabled(Boolean(this.characterAnimator));
+    this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !this.characterAnimator; });
+  }
+
+  private attackRange() {
+    if (this.variant === "crocodile") return 4.25;
+    if (this.variant === "hippopotamus") return 3.75;
+    if (this.variant === "bear") return 3.35;
+    if (this.variant === "lion") return 3.15;
+    return DEFAULT_COMBAT_BALANCE.enemy.attackRange;
+  }
+
+  private attackLocation(): HitLocation {
+    if (this.variant === "lion" || this.variant === "crocodile") return "head";
+    return "torso";
+  }
+
+  private dignityPressure(location: HitLocation) {
+    const base = location === "head" ? 11 : location === "heart" ? 5 : 3.5;
+    return base * this.balanceProfile.dignityPressure;
+  }
+
+  private recoveryDuration() {
+    if (this.variant === "crocodile") return 1.15;
+    if (this.variant === "lion") return 0.72;
+    if (this.variant === "bear") return 0.95;
+    if (this.variant === "hippopotamus") return 0.82;
+    return 0.55;
+  }
+
+  private whiffOpeningDuration() {
+    if (this.variant === "crocodile") return 1.65;
+    if (this.variant === "bear") return 1.55;
+    if (this.variant === "lion") return 1.05;
+    if (this.variant === "hippopotamus") return 1.2;
+    return 0.9;
+  }
+
+  private openHeart(seconds: number, notice?: string) {
+    this.heartOpenTime = Math.max(this.heartOpenTime, seconds);
+    if (notice) this.world.notify(notice, Math.min(1.25, seconds));
+  }
+
   prepareStrikeAudit() {
-    const duration = this.characterAnimator?.duration("heavy", 1.25) ?? 0.35;
+    this.currentAttackMove = ATTACK_BY_NAME.get(ENEMY_ATTACK_SETS[this.variant][0]) ?? null;
+    const duration = this.currentAttackMove ? this.characterAnimator?.durationNamed(this.currentAttackMove.name) ?? this.currentAttackMove.duration : 0.72;
     this.mode = "strike";
+    this.currentAttackDuration = duration;
     this.timer = duration * 0.48;
     this.dealtDamage = false;
+    this.attackConnected = false;
     this.warningRing.isVisible = false;
   }
 
   prepareAttackClashAudit() {
-    const duration = this.characterAnimator?.duration("heavy", 1.25) ?? 0.35;
+    this.currentAttackMove = ATTACK_BY_NAME.get(ENEMY_ATTACK_SETS[this.variant][0]) ?? null;
+    const duration = this.currentAttackMove ? this.characterAnimator?.durationNamed(this.currentAttackMove.name) ?? this.currentAttackMove.duration : 0.72;
     this.mode = "strike";
+    this.currentAttackDuration = duration;
     this.timer = duration * (1 - 0.52);
     this.dealtDamage = false;
+    this.attackConnected = false;
     this.warningRing.isVisible = false;
   }
 
@@ -1413,48 +2084,126 @@ class BarbarianEnemy {
     return this.health;
   }
 
+  maxHealthValue() {
+    return this.maxHealth;
+  }
+
+  dignityValue() {
+    return this.dignity.value;
+  }
+
+  displayName() {
+    return this.balanceProfile.displayName;
+  }
+
+  heartIsOpen() {
+    return this.heartOpenTime > 0;
+  }
+
+  targetPoint(location: HitLocation) {
+    const target = this.hitMeshes[location].find((mesh) => !mesh.isDisposed());
+    if (target) {
+      target.computeWorldMatrix(true);
+      return target.getBoundingInfo().boundingBox.centerWorld.clone();
+    }
+    const height = location === "head" ? 2.25 : location === "heart" ? 1.52 : 1.35;
+    return this.root.position.add(new Vector3(0, height * this.baseScale, 0));
+  }
+
+  targetRadius(location: HitLocation) {
+    return TARGET_VOLUME_RADIUS[location];
+  }
+
+  scoreMultiplier() {
+    return this.balanceProfile.scoreMultiplier;
+  }
+
   setHealthForAudit(value: number) {
     this.health = Math.max(0, value);
   }
 
   isAttackClashActive() {
-    if (this.mode !== "strike" || this.dealtDamage) return false;
-    const duration = this.characterAnimator?.duration("heavy", 1.25) ?? 0.35;
-    return isAttackClashWindow(clamp(1 - this.timer / duration, 0, 1));
+    if ((this.mode !== "strike" && this.mode !== "charge") || this.dealtDamage) return false;
+    return isAttackClashWindow(clamp(1 - this.timer / this.currentAttackDuration, 0, 1));
   }
 
   cancelAttackForClash() {
-    if (this.mode !== "strike") return;
+    if (this.mode !== "strike" && this.mode !== "charge") return;
     this.dealtDamage = true;
     this.mode = "recover";
-    this.timer = 0.34;
+    this.timer = 0.72;
+    this.openHeart(1.35, "攻撃相殺・心臓露出");
     this.warningRing.isVisible = false;
     this.weaponPivot.rotation.z = 0;
   }
 
-  takeDamage(amount: number, knockback: Vector3) {
-    if (this.mode === "dead" || this.removed) return;
-    this.health -= amount;
-    this.root.position.addInPlace(knockback);
+  takeTargetedDamage(amount: number, knockback: Vector3, requestedLocation: HitLocation, move?: AttackMove) {
+    const incoming = knockback.lengthSquared() > 0.001 ? knockback.normalizeToNew() : Vector3.Zero();
+    const struckFromFront = incoming.lengthSquared() > 0 && Vector3.Dot(forwardFromYaw(this.root.rotation.y), incoming) < -0.28;
+    const lionEvadesHead = this.variant === "lion" && requestedLocation === "head" && this.mode === "approach" && this.world.random() < 0.55;
+    const effectiveRequest = lionEvadesHead ? "torso" : requestedLocation;
+    const flankHeart = this.variant === "crocodile" && requestedLocation === "heart" && !struckFromFront;
+    const initial = resolveHit(amount, effectiveRequest, undefined, { heartExposed: this.heartOpenTime > 0 || flankHeart });
+    const healthMultiplier = move?.healthMultiplier[initial.location] ?? 1;
+    const dignityMultiplier = move?.dignityMultiplier[initial.location] ?? 1;
+    const rhinoFrontDefense = this.variant === "rhinoceros" && struckFromFront && this.heartOpenTime <= 0 && this.mode !== "stagger";
+    const resolved = Object.freeze({
+      ...initial,
+      damage: initial.damage * healthMultiplier * (rhinoFrontDefense ? 0.48 : 1),
+      dignityDamage: initial.dignityDamage * dignityMultiplier * (rhinoFrontDefense ? 0.7 : 1),
+    });
+    if (this.mode === "dead" || this.removed) return resolved;
+    const committedBearAttack = this.variant === "bear" && (this.mode === "telegraph" || this.mode === "strike") && resolved.damage < 10;
+    this.health = Math.max(0, this.health - resolved.damage);
+    this.dignity = applyDignityDamage(this.dignity, resolved.dignityDamage);
+    const knockbackResistance = this.variant === "hippopotamus" ? 0.22 : this.variant === "bear" ? 0.58 : 1;
+    this.root.position.addInPlace(knockback.scale(knockbackResistance));
+    if (isDignityLost(this.dignity) && !this.poopTransformed) this.transformToPoop();
     if (this.health <= 0) {
       this.mode = "dead";
       this.timer = 0.52;
       this.warningRing.isVisible = false;
-      return;
+      return resolved;
     }
+    if (committedBearAttack) return resolved;
     this.mode = "stagger";
-    this.timer = 0.22;
+    const majorStagger = resolved.location === "heart" || resolved.damage >= 10 || move?.power === "heavy";
+    this.timer = majorStagger ? 0.72 * resolved.staggerMultiplier : 0.22 * resolved.staggerMultiplier;
+    if (majorStagger) this.openHeart(Math.max(0.85, this.timer), "大きくよろめいた・心臓露出");
+    if (resolved.location === "heart") this.heartOpenTime = Math.min(this.heartOpenTime, 0.5);
     this.warningRing.isVisible = false;
-    this.torso.rotation.z = (Math.random() > 0.5 ? 1 : -1) * 0.24;
+    this.torso.rotation.z = (this.world.random() > 0.5 ? 1 : -1) * 0.24;
+    return resolved;
+  }
+
+  takeDamage(amount: number, knockback: Vector3) {
+    return this.takeTargetedDamage(amount, knockback, "torso");
   }
 
   openToCounter() {
     if (this.mode === "dead") return;
     this.mode = "stagger";
     this.timer = 1.1;
+    this.openHeart(1.8, "ジャストガード・心臓露出");
     this.warningRing.isVisible = false;
     this.weaponPivot.rotation.z = -1.75;
     this.torso.rotation.z = 0.46;
+  }
+
+  private transformToPoop() {
+    this.poopTransformed = true;
+    this.world.triggerDignityLoss(this.root.position, false);
+    const previousAnimator = this.characterAnimator;
+    this.world.characters.attach("poop", this.root, 0.82, (visual, animator) => {
+      this.characterVisual = visual;
+      this.characterAnimator = animator;
+      this.heartMeshes.length = 0;
+      this.heartMeshes.push(this.torso);
+      this.registerVisualHitMeshes(visual);
+      if (this.currentAttackMove && (this.mode === "strike" || this.mode === "charge")) animator.playNamed(this.currentAttackMove.name, false, 1, true);
+      else this.playCharacterMotion(this.mode === "dead" ? "dead" : this.mode === "stagger" ? "hurt" : "idle", this.mode !== "dead" && this.mode !== "stagger");
+      previousAnimator?.dispose();
+    });
   }
 
   private updateAnimationTest(delta: number) {
@@ -1467,7 +2216,7 @@ class BarbarianEnemy {
       { label: "TEST · HURT", motion: "hurt", duration: 0.6, loop: false },
       { label: "TEST · DEAD", motion: "dead", duration: 0.8, loop: false },
     ];
-    const fixedMotion = new URLSearchParams(window.location.search).get("animationTestPhase") as CharacterMotion | null;
+    const fixedMotion = runtimeFlags.animationTestPhase as CharacterMotion | null;
     const fixedPhase = phases.find((phase) => phase.motion === fixedMotion);
     if (fixedPhase) {
       this.playCharacterMotion(fixedPhase.motion, fixedPhase.loop, 1.1);
@@ -1494,20 +2243,43 @@ class BarbarianEnemy {
   }
 
   dispose() {
-    this.root.dispose(false, true);
+    this.characterAnimator?.dispose();
+    this.root.dispose(false, false);
   }
 }
+
+type CombatEffectKind = "light" | "heavy" | "miss" | "hurt" | "guard" | "clash" | "head" | "heart" | "dust";
 
 class CombatEffect {
   private readonly ring: Mesh;
   private time = 0;
   done = false;
 
-  constructor(scene: Scene, position: Vector3, kind: "light" | "heavy" | "miss" | "hurt" | "guard" | "clash", materials: ArenaMaterials) {
-    this.ring = MeshBuilder.CreateTorus("impactRing", { diameter: kind === "clash" ? 1.55 : kind === "heavy" ? 0.8 : kind === "guard" ? 1.15 : 0.45, thickness: kind === "clash" ? 0.12 : kind === "guard" ? 0.085 : 0.055, tessellation: 16 }, scene);
-    this.ring.position.copyFrom(position);
+  constructor(scene: Scene, readonly kind: CombatEffectKind, materials: ArenaMaterials) {
+    const diameter = kind === "clash" ? 1.55 : kind === "heart" ? 1.25 : kind === "head" ? 0.92 : kind === "heavy" ? 0.8 : kind === "guard" ? 1.15 : kind === "dust" ? 0.35 : 0.45;
+    const thickness = kind === "clash" || kind === "heart" ? 0.12 : kind === "guard" || kind === "head" ? 0.085 : kind === "dust" ? 0.035 : 0.055;
+    this.ring = MeshBuilder.CreateTorus("impactRing", { diameter, thickness, tessellation: kind === "dust" ? 10 : 16 }, scene);
     this.ring.rotation.x = Math.PI / 2;
-    this.ring.material = kind === "hurt" ? materials.warning : kind === "guard" || kind === "clash" ? materials.playerBronze : materials.impact;
+    this.ring.material = kind === "heart"
+      ? materials.heart
+      : kind === "head"
+        ? materials.dignity
+        : kind === "dust"
+          ? materials.dust
+          : kind === "hurt"
+            ? materials.warning
+            : kind === "guard" || kind === "clash"
+              ? materials.playerBronze
+              : materials.impact;
+    this.ring.setEnabled(false);
+  }
+
+  reset(position: Vector3) {
+    this.time = 0;
+    this.done = false;
+    this.ring.position.copyFrom(position);
+    this.ring.scaling.setAll(1);
+    this.ring.setEnabled(true);
   }
 
   update(delta: number) {
@@ -1517,7 +2289,7 @@ class CombatEffect {
     this.ring.position.y += delta * 0.15;
     if (this.time > 0.34) {
       this.done = true;
-      this.dispose();
+      this.ring.setEnabled(false);
     }
   }
 
@@ -1537,7 +2309,7 @@ class RageTextEffect {
   constructor(private readonly scene: Scene, origin: Vector3, private velocity: Vector3, private readonly scale: number, index: number) {
     this.life = 0.56 + (index % 4) * 0.07;
     this.position = origin.add(new Vector3(0, 0.04 + (index % 3) * 0.12, 0));
-    this.rotation = -24 + Math.random() * 48;
+    this.rotation = -24 + ((index * 17) % 48);
     this.element = document.createElement("span");
     this.element.className = "rage-text-burst";
     this.element.textContent = "怒破";
@@ -1550,8 +2322,14 @@ class RageTextEffect {
     this.velocity.y -= delta * 6.4;
     this.position.addInPlace(this.velocity.scale(delta));
     const fade = Math.max(0, 1 - this.time / this.life);
-    const x = window.innerWidth * 0.5 + this.position.x * 25;
-    const y = window.innerHeight * 0.57 - this.position.z * 12 - this.position.y * 25;
+    const camera = this.scene.activeCamera;
+    if (!camera) return;
+    const engine = this.scene.getEngine();
+    const viewport = camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight());
+    const projected = Vector3.Project(this.position, Matrix.Identity(), this.scene.getTransformMatrix(), viewport);
+    const x = projected.x;
+    const y = projected.y;
+    this.element.style.visibility = projected.z >= 0 && projected.z <= 1 ? "visible" : "hidden";
     this.element.style.left = `${x}px`;
     this.element.style.top = `${y}px`;
     this.element.style.opacity = `${fade}`;

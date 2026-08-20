@@ -5,7 +5,7 @@ describe("character preload plan", () => {
   it("selects the next challenger using the post-spawn roster cursor", () => {
     const roster = ["bear", "crocodile", "gorilla"] as const;
     expect(nextPreloadKey(roster, 1)).toBe("crocodile");
-    expect(nextPreloadKey(roster, 3)).toBe("bear");
+    expect(nextPreloadKey(roster, 3)).toBeNull();
     expect(nextPreloadKey([], 0)).toBeNull();
   });
 

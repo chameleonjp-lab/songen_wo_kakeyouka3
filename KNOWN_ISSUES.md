@@ -1,0 +1,29 @@
+# 既知の問題・未完了
+
+このファイルは「実装済み」と「まだ確認していない」を分けるための記録です。`?demo` が動くことだけで本番完成とは判断しません。
+
+## 高優先度（公開前に確認／修正）
+
+| 状態 | 内容 | 次の確認 |
+|---|---|---|
+| CI確認済み・実機検証待ち | GitHub Actions run #10で `pnpm check`、Vitest（14 files / 61 tests）、本番build、GLB監査、runtime素材同期を同一commitで実行済み | CI run #10のartifactと、Pages／実機での画面・Network再確認 |
+| 検証待ち | GitHub Pagesの実プロジェクトサブパスで遅延chunk、画像、GLB、faviconを確認していない | Pages URLでhard reloadとNetworkを確認 |
+| 検証待ち | iPhone Safariで6戦の起動・タッチ・音声・復帰を最終確認していない | [IPHONE.md](IPHONE.md) の手順を実機で実行 |
+| 修正済み・画面再確認待ち | ランチャー／ゲーム開始文言を旧集団戦から6戦1対1へ更新した | `SIX CONSECUTIVE DUELS` と6体表記を実機で再確認 |
+| 要確認 | Nodeサーバー経路は静的ゲームの既定起動から分離済みだが、今回のブラウザ確認対象外 | Nodeサーバーを使う環境で `pnpm build:server && pnpm start:server` を確認 |
+
+## 中優先度（制約）
+
+- 専用の `Hurt`／`Death`／`Walk` GLB groupは監査済み44クリップにはない。現状は `Guard`／`Idle` または手続きメッシュへfallbackする。専用モーション完成とは書かない。
+- runtimeではsmooth 8 GLBだけを配信・ロードする。regular 8 GLBは原本監査用で、低品質版へ切り替えるUIはまだない。
+- `?demo` は監査のため敵を早期配置し、怒気や入力を自動供給する。本番の開始待機、難易度、無限集団戦を表すモードではない。
+- GitHub Pagesは静的配布であり、Nodeサーバー、認証、DB、オンラインランキング、`rankingSubmission()` の送信先はない。
+- Web Audioの自動再生、iPhoneの振動、localStorageはブラウザ／設定依存。利用できない場合のfallbackは継続プレイを優先する。
+
+## 素材・ライセンス
+
+`package.json` の `MIT` はコードのメタデータです。GLB、画像、テクスチャ、生成入力のライセンス、提供元、クレジット条件は別途確認が必要で、現時点でMITやCC等と断定しません。公開前に権利者の記録を追加してください。
+
+## 仕様として未採用
+
+無限に増える敵群、複数敵の同時戦闘、オンラインスコアボードは未完成機能ではなく、現行リリースのスコープ外です。要件変更があった場合は、README・PLAN・ENEMY_SPEC・CIの受け入れ条件を同時に更新します。
