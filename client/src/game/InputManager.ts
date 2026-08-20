@@ -3,6 +3,7 @@ import { Vector2 } from "@babylonjs/core/Maths/math.vector";
 import { runtimeFlags } from "@/game/RuntimeFlags";
 
 export type ArenaAction = "light" | "heavy" | "dodge" | "guard" | "rage" | "aim" | "pause" | "restart";
+export type AttackInputAction = Extract<ArenaAction, "light" | "heavy">;
 export type TimedArenaAction = Readonly<{ action: ArenaAction; at: number }>;
 
 const INPUT_QUEUE_CAPACITY = 8;
@@ -196,6 +197,23 @@ export class InputManager {
     this.prune();
     const index = this.queue.findIndex((entry) => entry.action === action);
     if (index < 0) return false;
+    this.queue.splice(index, 1);
+    return true;
+  }
+
+  /**
+   * Combat chains must preserve the order in which weak/strong taps arrived.
+   * Non-attack actions remain independently consumable for defensive cancels.
+   */
+  peekAttack() {
+    this.prune();
+    return this.queue.find((entry) => entry.action === "light" || entry.action === "heavy")?.action as AttackInputAction | undefined;
+  }
+
+  consumeAttack(action: AttackInputAction) {
+    this.prune();
+    const index = this.queue.findIndex((entry) => entry.action === "light" || entry.action === "heavy");
+    if (index < 0 || this.queue[index]?.action !== action) return false;
     this.queue.splice(index, 1);
     return true;
   }

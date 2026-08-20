@@ -35,6 +35,7 @@ export type ScoreState = Readonly<{
   maxCombo: number;
   comboTimer: number;
   hits: number;
+  misses: number;
   criticalHits: number;
   defeats: number;
   lastPoints: number;
@@ -128,6 +129,7 @@ export function createScoreState(): ScoreState {
     maxCombo: 0,
     comboTimer: 0,
     hits: 0,
+    misses: 0,
     criticalHits: 0,
     defeats: 0,
     lastPoints: 0,
@@ -281,7 +283,7 @@ export function applyScoreEvent(
     case "poop-head":
       return withPoints(state, -config.poopTransformationPenalty, { poopTransformations: state.poopTransformations + 1, combo: 0, comboTimer: 0 });
     case "miss":
-      return withPoints(state, 0, { combo: 0, comboTimer: 0 });
+      return withPoints(state, 0, { misses: state.misses + 1, combo: 0, comboTimer: 0 });
     case "tick":
       return tickScore(state, event.deltaSeconds, config, event.roundActive ?? true);
     case "clear": {

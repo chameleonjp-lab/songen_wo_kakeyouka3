@@ -46,6 +46,28 @@ export type HapticsOptions = {
 
 const HAPTICS_SETTINGS_KEY = "barbarian-arena.haptics-enabled.v1";
 
+export function loadHapticsPreference(
+  storage?: Pick<Storage, "getItem"> | null,
+  storageKey = HAPTICS_SETTINGS_KEY,
+) {
+  let source = storage;
+  if (source === undefined) {
+    try {
+      source = typeof window === "undefined" ? null : window.localStorage;
+    } catch {
+      source = null;
+    }
+  }
+  try {
+    const value = source?.getItem(storageKey);
+    if (value === "true") return true;
+    if (value === "false") return false;
+  } catch {
+    // Storage access is optional.
+  }
+  return null;
+}
+
 // Existing values are preserved for regression compatibility. New events use
 // clearly different rhythms so body/head/heart and result feedback can be told
 // apart without looking at the HUD.
@@ -201,14 +223,7 @@ export class Haptics {
   }
 
   private readPersistedEnabled() {
-    try {
-      const value = this.storage?.getItem(this.storageKey);
-      if (value === "true") return true;
-      if (value === "false") return false;
-    } catch {
-      // Private browsing and blocked storage are normal on embedded browsers.
-    }
-    return null;
+    return loadHapticsPreference(this.storage, this.storageKey);
   }
 
   private persist(enabled: boolean) {

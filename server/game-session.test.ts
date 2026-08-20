@@ -12,6 +12,7 @@ describe("six-duel run results", () => {
     expect(result.reachedRound).toBe(6);
     expect(result.remainingHealth).toBe(72);
     expect(result.remainingDignity).toBe(88);
+    expect(result.accuracyPercent).toBe(0);
     expect(session.rankingSubmission()).toMatchObject({
       gameSlug: "songen_wo_kakeyouka3",
       playerName: "ガチョウ",

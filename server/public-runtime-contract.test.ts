@@ -73,6 +73,9 @@ describe("runtime wiring source contracts", () => {
     expect(gameWorldSource).toContain("this.world.triggerAttackClash(Vector3.Lerp(this.world.player.root.position, this.root.position, 0.5));");
     expect(gameWorldSource.match(/if \(isDignityLost\(this\.dignity\) && !this\.poopTransformed\) this\.transformToPoop\(\);/g)).toHaveLength(2);
     expect(gameWorldSource).toContain("this.world.session.recordPoopTransformation();");
+    expect(gameWorldSource).toContain("const targetPoint = enemy.targetPoint(target);");
+    expect(gameWorldSource).toContain("const hitRadius = enemy.targetRadius(target);");
+    expect(gameWorldSource).toContain("counterReady: this.player.counterReady()");
   });
 
   it("keeps dodge direction and cooldown in the player input path", () => {

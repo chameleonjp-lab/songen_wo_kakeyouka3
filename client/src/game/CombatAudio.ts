@@ -105,6 +105,35 @@ const DEFAULT_AUDIO_SETTINGS: CombatAudioSettings = {
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const finiteOr = (value: unknown, fallback: number) => (typeof value === "number" && Number.isFinite(value) ? value : fallback);
 
+export function loadCombatAudioSettings(
+  storage?: Pick<Storage, "getItem"> | null,
+  storageKey = AUDIO_SETTINGS_KEY,
+  overrides: Partial<CombatAudioSettings> = {},
+): CombatAudioSettings {
+  let source = storage;
+  if (source === undefined) {
+    try {
+      source = typeof window === "undefined" ? null : window.localStorage;
+    } catch {
+      source = null;
+    }
+  }
+  let persisted: Partial<CombatAudioSettings> = {};
+  try {
+    const raw = source?.getItem(storageKey);
+    if (raw) persisted = JSON.parse(raw) as Partial<CombatAudioSettings>;
+  } catch {
+    persisted = {};
+  }
+  return {
+    master: clamp(finiteOr(overrides.master ?? persisted.master, DEFAULT_AUDIO_SETTINGS.master), 0, 1),
+    music: clamp(finiteOr(overrides.music ?? persisted.music, DEFAULT_AUDIO_SETTINGS.music), 0, 1),
+    sfx: clamp(finiteOr(overrides.sfx ?? persisted.sfx, DEFAULT_AUDIO_SETTINGS.sfx), 0, 1),
+    ambient: clamp(finiteOr(overrides.ambient ?? persisted.ambient, DEFAULT_AUDIO_SETTINGS.ambient), 0, 1),
+    muted: typeof (overrides.muted ?? persisted.muted) === "boolean" ? Boolean(overrides.muted ?? persisted.muted) : DEFAULT_AUDIO_SETTINGS.muted,
+  };
+}
+
 type ToneSpec = {
   start: number;
   end: number;
@@ -749,20 +778,7 @@ export class CombatAudio {
   }
 
   private readSettings(overrides?: Partial<CombatAudioSettings>) {
-    let persisted: Partial<CombatAudioSettings> = {};
-    try {
-      const raw = this.storage?.getItem(this.storageKey);
-      if (raw) persisted = JSON.parse(raw) as Partial<CombatAudioSettings>;
-    } catch {
-      persisted = {};
-    }
-    return {
-      master: clamp(finiteOr(overrides?.master ?? persisted.master, DEFAULT_AUDIO_SETTINGS.master), 0, 1),
-      music: clamp(finiteOr(overrides?.music ?? persisted.music, DEFAULT_AUDIO_SETTINGS.music), 0, 1),
-      sfx: clamp(finiteOr(overrides?.sfx ?? persisted.sfx, DEFAULT_AUDIO_SETTINGS.sfx), 0, 1),
-      ambient: clamp(finiteOr(overrides?.ambient ?? persisted.ambient, DEFAULT_AUDIO_SETTINGS.ambient), 0, 1),
-      muted: typeof (overrides?.muted ?? persisted.muted) === "boolean" ? Boolean(overrides?.muted ?? persisted.muted) : DEFAULT_AUDIO_SETTINGS.muted,
-    } satisfies CombatAudioSettings;
+    return loadCombatAudioSettings(this.storage, this.storageKey, overrides);
   }
 
   private persistSettings() {

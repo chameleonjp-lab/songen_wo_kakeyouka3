@@ -60,7 +60,7 @@ pnpm build
 - [GLB_REAL_DATA_AUDIT.md](GLB_REAL_DATA_AUDIT.md) — GLBの実データ監査詳細
 - [GLB_ANIMATION_CATALOG.md](GLB_ANIMATION_CATALOG.md) — 44アニメーション／40攻撃の対応表
 - [ANIMATION_PHASE_VERIFICATION.md](ANIMATION_PHASE_VERIFICATION.md) — 7フェーズの検証手順とフォールバック方針
-- [ADVERSARIAL_TEST_REPORT.md](ADVERSARIAL_TEST_REPORT.md) — ブラウザ敵対的監査の記録
+- [ADVERSARIAL_TEST_REPORT.md](ADVERSARIAL_TEST_REPORT.md) — 旧実装に対する履歴監査（現行ブランチの合格根拠ではない）
 
 主要ディレクトリは `client/src/game/`（ゲームルール、入力、カメラ、GLB、音響）、`client/src/components/`（ReactホストとHUD）、`client/public/assets/`（同梱素材）、`server/*.test.ts`（Vitest回帰テスト）です。
 

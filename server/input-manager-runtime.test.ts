@@ -98,6 +98,23 @@ describe("InputManager runtime queue", () => {
     input.dispose();
   });
 
+  it("does not let a later strong attack jump ahead of queued weak attacks", () => {
+    const dom = installFakeDom();
+    vi.stubGlobal("performance", { now: () => 100 });
+    const input = new InputManager(dom.canvas);
+
+    touch(dom.window, "light");
+    touch(dom.window, "light");
+    touch(dom.window, "heavy");
+    expect(input.peekAttack()).toBe("light");
+    expect(input.consumeAttack("heavy")).toBe(false);
+    expect(input.consumeAttack("light")).toBe(true);
+    expect(input.consumeAttack("light")).toBe(true);
+    expect(input.peekAttack()).toBe("heavy");
+    expect(input.consumeAttack("heavy")).toBe(true);
+    input.dispose();
+  });
+
   it("does not turn a dragged pointer into an attack and leaves the next tap usable", () => {
     const dom = installFakeDom();
     vi.stubGlobal("performance", { now: () => 100 });

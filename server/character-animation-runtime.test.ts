@@ -62,11 +62,13 @@ describe("character animation runtime", () => {
 
   it("restarts a repeated non-loop animation only when explicitly requested", () => {
     const group = fakeGroup("Punch_01_Jab");
-    const animator = new CharacterAnimator([group] as never);
+    const disposeOwned = vi.fn();
+    const animator = new CharacterAnimator([group] as never, disposeOwned);
 
     expect(animator.playNamed("Punch_01_Jab", false, 1, true)).toBe(true);
     expect(group.reset).toHaveBeenCalledTimes(1);
     expect(group.start).toHaveBeenCalledTimes(1);
+    expect(group.start).toHaveBeenLastCalledWith(false, 1);
 
     expect(animator.playNamed("Punch_01_Jab", false, 1.2, false)).toBe(true);
     expect(group.reset).toHaveBeenCalledTimes(1);
@@ -77,7 +79,12 @@ describe("character animation runtime", () => {
     expect(group.stop).toHaveBeenCalledTimes(1);
     expect(group.reset).toHaveBeenCalledTimes(2);
     expect(group.start).toHaveBeenCalledTimes(2);
+    expect(group.start).toHaveBeenLastCalledWith(false, 1);
     expect(animator.durationNamed("Punch_01_Jab")).toBe(1);
     expect(animator.durationNamed("missing")).toBeNull();
+    animator.dispose();
+    animator.dispose();
+    expect(group.dispose).toHaveBeenCalledTimes(1);
+    expect(disposeOwned).toHaveBeenCalledTimes(1);
   });
 });

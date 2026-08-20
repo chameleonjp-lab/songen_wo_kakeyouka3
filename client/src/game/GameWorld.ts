@@ -31,7 +31,7 @@ import { selectAttackMove, ENEMY_ATTACK_SETS, ATTACK_BY_NAME, type AttackMove } 
 import { DEFAULT_COMBAT_BALANCE } from "@/game/CombatBalance";
 import { applyDignityDamage, createDignityState, isDignityLost, type DignityState } from "@/game/Dignity";
 import { DEFAULT_ENEMY_ROSTER, enemyProfileFor, type EnemyProfile } from "@/game/EnemyRoster";
-import { resolveHit, type HitLocation } from "@/game/HitLocations";
+import { resolveHit, TARGET_VOLUME_RADIUS, type HitLocation } from "@/game/HitLocations";
 import { GameSession, targetLabel, type RunResult } from "@/game/GameSession";
 import { runtimeFlags } from "@/game/RuntimeFlags";
 import { requestLocalRetry } from "@/game/PlayerProfile";
@@ -45,7 +45,9 @@ type Attack = {
   time: number;
   duration: number;
   hitAt: number;
+  hitEndAt: number;
   didHit: boolean;
+  connected: boolean;
   queued: "light" | "heavy" | null;
   pulse: number;
   move: AttackMove;
@@ -100,6 +102,7 @@ type HudPayload = {
   lockTarget: string | null;
   notice: string;
   guardBreak: number;
+  counterReady: boolean;
   loadState: "loading" | "ready";
   intermission: boolean;
   intermissionRemaining: number;
@@ -174,6 +177,9 @@ export class GameWorld {
   private result: RunResult | null = null;
   private screenShakeScale = 1;
   private randomState = 0x51f15e;
+  private disposed = false;
+  private readonly auditTimers: number[] = [];
+  private readonly effectPool = new Map<CombatEffectKind, CombatEffect[]>();
   private readonly onCommand = (event: Event) => {
     const detail = (event as CustomEvent<{ command: string; value?: string | number | boolean }>).detail;
     const command = detail?.command;
@@ -236,29 +242,37 @@ export class GameWorld {
     window.addEventListener("arena-haptics-settings", this.onHapticsSettings);
     this.startRequested = this.input.isDemo;
     void initialPreload.then((results) => {
+      if (this.disposed) return;
       this.assetsPrepared = true;
       if (results.some((ready) => !ready)) this.notify("一部素材を代替表示で開始します", 1.8);
       if (this.startRequested) this.beginRun();
       this.emitHud(1);
     });
     if (this.input.isDemo && runtimeFlags.audioAudit) {
-      window.setTimeout(() => this.runAudioAudit(), 260);
+      this.scheduleAudit(() => this.runAudioAudit(), 260);
     }
     if (this.input.isDemo && runtimeFlags.clashAudit) {
       console.info("[ClashAudit] scheduled");
-      window.setTimeout(() => this.runClashAudit(), 720);
+      this.scheduleAudit(() => this.runClashAudit(), 720);
     }
     if (this.input.isDemo && runtimeFlags.combatAudit) {
-      window.setTimeout(() => this.runCombatAudit(), 720);
+      this.scheduleAudit(() => this.runCombatAudit(), 720);
     }
     if (this.input.isDemo && runtimeFlags.lockAudit) {
-      window.setTimeout(() => this.runMouseLookAudit(), 850);
-      window.setTimeout(() => this.runLockAuditTransition(), 1600);
+      this.scheduleAudit(() => this.runMouseLookAudit(), 850);
+      this.scheduleAudit(() => this.runLockAuditTransition(), 1600);
     }
     if (this.input.isDemo && runtimeFlags.adversarialAudit) {
-      window.setTimeout(() => this.runPreLethalAudit(), 1100);
+      this.scheduleAudit(() => this.runPreLethalAudit(), 1100);
     }
     this.emitHud();
+  }
+
+  private scheduleAudit(task: () => void, delay: number) {
+    const timer = window.setTimeout(() => {
+      if (!this.disposed) task();
+    }, delay);
+    this.auditTimers.push(timer);
   }
 
   private configureScene() {
@@ -303,7 +317,8 @@ export class GameWorld {
       cloth.parent = base;
       cloth.position.set(0.65, 4.2, 0);
       cloth.material = this.materials.banner;
-      this.bannerNodes.push(base);
+      // Animate only the cloth; the pole and its foundation stay rigid.
+      this.bannerNodes.push(cloth);
     }
 
     const braziers = [
@@ -314,8 +329,13 @@ export class GameWorld {
       const pit = MeshBuilder.CreateCylinder(`brazier-${index}`, { height: 0.8, diameterTop: 1.1, diameterBottom: 1.35, tessellation: 10 }, this.scene);
       pit.position = position.add(new Vector3(0, 0.4, 0));
       pit.material = this.materials.iron;
-      const flame = MeshBuilder.CreateSphere(`flame-${index}`, { diameter: 0.82, segments: 8 }, this.scene);
-      flame.position = position.add(new Vector3(0, 1.05, 0));
+      const flame = MeshBuilder.CreateCylinder(`flame-${index}`, {
+        height: 1.05,
+        diameterTop: 0.06,
+        diameterBottom: 0.64,
+        tessellation: 7,
+      }, this.scene);
+      flame.position = position.add(new Vector3(0, 1.16, 0));
       flame.material = this.materials.fire;
       const light = new PointLight(`fireLight-${index}`, position.add(new Vector3(0, 1.7, 0)), this.scene);
       light.diffuse = Color3.FromHexString("#EA812B");
@@ -325,14 +345,16 @@ export class GameWorld {
   }
 
   update(delta: number) {
+    if (this.disposed) return;
     // Preserve real-time pacing on a temporarily slow mobile frame while
     // bounding a background-tab resume spike.
     const rawDelta = Math.min(delta, 0.1);
     this.slowMotionTime = Math.max(0, this.slowMotionTime - rawDelta);
     const capped = rawDelta * (this.slowMotionTime > 0 ? 0.3 : 1);
     this.elapsed += capped;
-    this.bannerNodes.forEach((node, index) => {
-      node.rotation.z = Math.sin(this.elapsed * 1.65 + index * 1.7) * 0.04;
+    this.bannerNodes.forEach((cloth, index) => {
+      cloth.rotation.z = Math.sin(this.elapsed * 1.65 + index * 1.7) * 0.04;
+      cloth.rotation.y = Math.sin(this.elapsed * 2.15 + index * 1.1) * 0.035;
     });
 
     this.input.update(capped);
@@ -363,7 +385,10 @@ export class GameWorld {
     for (const enemy of [...this.enemies]) enemy.update(capped);
     this.effects.forEach((effect) => effect.update(capped));
     for (let index = this.effects.length - 1; index >= 0; index -= 1) {
-      if (this.effects[index].done) this.effects.splice(index, 1);
+      if (this.effects[index].done) {
+        const [effect] = this.effects.splice(index, 1);
+        this.recycleEffect(effect);
+      }
     }
     this.rageTexts.forEach((effect) => effect.update(capped));
     for (let index = this.rageTexts.length - 1; index >= 0; index -= 1) {
@@ -481,12 +506,18 @@ export class GameWorld {
     const effectiveArcDot = target === "heart" ? Math.max(0.42, arcDot) : target === "head" ? Math.max(0.18, arcDot) : arcDot;
     for (const enemy of this.enemies) {
       if (enemy.removed || enemy.mode === "dead") continue;
-      const offset = enemy.root.position.subtract(origin);
+      const targetPoint = enemy.targetPoint(target);
+      const attackHeight = target === "head" ? 2.12 : target === "heart" ? 1.52 : 1.2;
+      const strikeOrigin = origin.add(new Vector3(0, attackHeight, 0));
+      const offset = targetPoint.subtract(strikeOrigin);
       const horizontal = new Vector3(offset.x, 0, offset.z);
       const distance = horizontal.length();
       if (distance > effectiveRange || distance < 0.1) continue;
       const direction = horizontal.normalize();
       if (Vector3.Dot(forward, direction) < effectiveArcDot) continue;
+      const right = new Vector3(forward.z, 0, -forward.x);
+      const hitRadius = enemy.targetRadius(target);
+      if (Math.abs(offset.y) > hitRadius || Math.abs(Vector3.Dot(horizontal, right)) > hitRadius) continue;
       if (this.player.isAttackClashActive() && enemy.isAttackClashActive()) {
         enemy.cancelAttackForClash();
         this.requestAttackClash();
@@ -498,9 +529,8 @@ export class GameWorld {
       }
       const resolved = enemy.takeTargetedDamage(damage, direction.scale(knockback), target, move);
       this.session.recordHit(resolved, move?.name ?? `${sound}-${target}`);
-      const impactHeight = resolved.location === "head" ? 2.15 : resolved.location === "heart" ? 1.5 : 1.15;
       const impactKind = resolved.location === "heart" ? "heart" : resolved.location === "head" ? "head" : damage > 2 ? "heavy" : "light";
-      this.effects.push(new CombatEffect(this.scene, enemy.root.position.add(new Vector3(0, impactHeight, 0)), impactKind, this.materials));
+      this.spawnEffect(targetPoint, impactKind);
       this.audio.playHit(resolved.location, sound === "heavy" ? 1.24 : 0.92);
       this.haptics.triggerHit(resolved.location);
       this.notify(
@@ -671,7 +701,7 @@ export class GameWorld {
     this.slowMotionTime = Math.max(this.slowMotionTime, 0.16);
     this.addCameraShake(0.62);
     this.player.routeLabel = "ATTACK CLASH — CANCEL!";
-    this.effects.push(new CombatEffect(this.scene, position.add(new Vector3(0, 1.05, 0)), "clash", this.materials));
+    this.spawnEffect(position.add(new Vector3(0, 1.05, 0)), "clash");
   }
 
   recordEnemyEntryRoar(variant: EnemyCharacterKey, pan: number) {
@@ -706,7 +736,7 @@ export class GameWorld {
       this.taunt = enemyPresentations[nextVariant].taunt;
       void this.characters.preload(nextVariant);
     }
-    this.effects.push(new CombatEffect(this.scene, enemy.root.position.add(new Vector3(0, 0.4, 0)), "heavy", this.materials));
+    this.spawnEffect(enemy.root.position.add(new Vector3(0, 0.4, 0)), "heavy");
   }
 
   finishRun(reason: "victory" | "defeat" | "retired") {
@@ -730,7 +760,7 @@ export class GameWorld {
     if (this.input.isDemo && runtimeFlags.combatAudit) console.info("[CombatAudit] just guard started");
     this.slowMotionTime = Math.max(this.slowMotionTime, 0.18);
     this.addCameraShake(0.72);
-    this.effects.push(new CombatEffect(this.scene, position.add(new Vector3(0, 1.2, 0)), "guard", this.materials));
+    this.spawnEffect(position.add(new Vector3(0, 1.2, 0)), "guard");
   }
 
   triggerRageBurst(position: Vector3) {
@@ -738,7 +768,7 @@ export class GameWorld {
     this.audio.playRage(1.35);
     this.slowMotionTime = Math.max(this.slowMotionTime, 0.12);
     this.addCameraShake(1.05);
-    this.effects.push(new CombatEffect(this.scene, position.add(new Vector3(0, 0.28, 0)), "heavy", this.materials));
+    this.spawnEffect(position.add(new Vector3(0, 0.28, 0)), "heavy");
     this.burstRageText(position.add(new Vector3(0, 1.1, 0)), 6, 1.24);
   }
 
@@ -747,8 +777,9 @@ export class GameWorld {
     this.addCameraShake(0.8);
     this.audio.playDignityLoss(0.95);
     this.haptics.triggerDignityLoss();
+    this.camera.radius = Math.max(this.camera.lowerRadiusLimit ?? 7, this.camera.radius - 0.9);
     this.notify(playerSide ? "尊厳喪失・怒気獲得上昇" : "敵の尊厳を奪った", 1.65);
-    this.effects.push(new CombatEffect(this.scene, position.add(new Vector3(0, 2.05, 0)), "head", this.materials));
+    this.spawnEffect(position.add(new Vector3(0, 2.05, 0)), "head");
   }
 
   burstRageText(position: Vector3, count: number, scale = 1) {
@@ -758,6 +789,21 @@ export class GameWorld {
       const speed = 1.4 + this.random() * 2.5;
       this.rageTexts.push(new RageTextEffect(this.scene, position, new Vector3(Math.cos(theta) * speed, 1.9 + this.random() * 2.2, Math.sin(theta) * speed), scale * (0.72 + this.random() * 0.62), index));
     }
+  }
+
+  spawnEffect(position: Vector3, kind: CombatEffectKind) {
+    const available = this.effectPool.get(kind) ?? [];
+    const effect = available.pop() ?? new CombatEffect(this.scene, kind, this.materials);
+    this.effectPool.set(kind, available);
+    effect.reset(position);
+    this.effects.push(effect);
+  }
+
+  private recycleEffect(effect: CombatEffect) {
+    const available = this.effectPool.get(effect.kind) ?? [];
+    if (available.length < 12) available.push(effect);
+    else effect.dispose();
+    this.effectPool.set(effect.kind, available);
   }
 
   clampToArena(position: Vector3) {
@@ -772,7 +818,7 @@ export class GameWorld {
   private emitHud(delta = 1) {
     this.hudClock -= delta;
     if (this.hudClock > 0) return;
-    this.hudClock = 0.06;
+    this.hudClock = 0.1;
     const activeEnemy = this.enemies.find((enemy) => !enemy.removed && enemy.mode !== "dead") ?? null;
     const detail: HudPayload = {
       health: Math.ceil(this.player.health),
@@ -814,6 +860,7 @@ export class GameWorld {
       lockTarget: activeEnemy?.displayName() ?? null,
       notice: this.notice,
       guardBreak: this.player.guardBreak,
+      counterReady: this.player.counterReady(),
       loadState: this.assetsPrepared ? "ready" : "loading",
       intermission: this.challengeTimer > 0 && this.started && !this.completed,
       intermissionRemaining: Math.max(0, this.challengeTimer),
@@ -827,12 +874,18 @@ export class GameWorld {
   }
 
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.auditTimers.forEach((timer) => window.clearTimeout(timer));
+    this.auditTimers.length = 0;
     window.removeEventListener("arena-command", this.onCommand);
     window.removeEventListener("arena-auto-pause", this.onAutoPause);
     window.removeEventListener("arena-audio-settings", this.onAudioSettings);
     window.removeEventListener("arena-haptics-settings", this.onHapticsSettings);
     this.input.dispose();
     this.effects.forEach((effect) => effect.dispose());
+    this.effectPool.forEach((effects) => effects.forEach((effect) => effect.dispose()));
+    this.effectPool.clear();
     this.rageTexts.forEach((effect) => effect.dispose());
     this.enemies.forEach((enemy) => enemy.dispose());
     this.player.dispose();
@@ -1078,7 +1131,7 @@ class Player {
     const heavyAcceptable = this.counterWindow > 0 && !this.attack && this.mode !== "dodge"
       || heavyChainOpen
       || !this.attack && this.mode !== "dodge";
-    if (heavyAcceptable && this.world.input.consume("heavy")) {
+    if (heavyAcceptable && this.world.input.peekAttack() === "heavy" && this.world.input.consumeAttack("heavy")) {
       if (this.counterWindow > 0 && !this.attack && this.mode !== "dodge") {
         this.beginCounter();
       } else if (heavyChainOpen && this.attack?.kind === "light") {
@@ -1091,7 +1144,7 @@ class Player {
     const lightChainOpen = this.attack?.kind === "light"
       && this.attack.time >= this.scaledMoveTime(this.attack.move.chainOpen)
       && this.attack.time <= this.scaledMoveTime(this.attack.move.chainClose);
-    if ((lightChainOpen || !this.attack && this.mode !== "dodge") && this.world.input.consume("light")) {
+    if ((lightChainOpen || !this.attack && this.mode !== "dodge") && this.world.input.peekAttack() === "light" && this.world.input.consumeAttack("light")) {
       if (lightChainOpen && this.attack?.kind === "light") {
         this.attack.queued = "light";
       } else if (!this.attack && this.mode !== "dodge") {
@@ -1139,7 +1192,7 @@ class Player {
         this.mode = "move";
         if (this.dustClock <= 0) {
           this.dustClock = 0.2;
-          this.world.effects.push(new CombatEffect(this.world.scene, this.root.position.add(new Vector3(0, 0.08, 0)), "dust", this.world.materials));
+          this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.08, 0)), "dust");
         }
       } else {
         if (this.world.input.isDemo && demoTarget) {
@@ -1157,6 +1210,7 @@ class Player {
     if (this.characterVisual) {
       this.characterVisual.position.y = bob * 0.45;
       this.characterVisual.rotation.z = lerpAngle(this.characterVisual.rotation.z, this.mode === "dodge" ? 0.22 : 0, clamp(delta * 12, 0, 1));
+      if (!this.attack) this.characterVisual.rotation.y = lerpAngle(this.characterVisual.rotation.y, 0, clamp(delta * 14, 0, 1));
     }
     if (!this.attack) {
       const motion: CharacterMotion = this.mode === "guard" ? "guard" : this.mode === "dodge" || this.mode === "move" ? "move" : "idle";
@@ -1234,7 +1288,9 @@ class Player {
       time: 0,
       duration,
       hitAt,
+      hitEndAt: duration * (move.hitEnd / move.duration),
       didHit: false,
+      connected: false,
       queued: null,
       pulse: 0,
       move,
@@ -1270,7 +1326,7 @@ class Player {
     if (this.world.input.isDemo && runtimeFlags.combatAudit) console.info("[CombatAudit] counter started");
     const move = selectAttackMove({ kind: "counter", stage: 0, directionX: 0, directionY: 1, afterDodge: false, afterJustGuard: true, afterClash: false, distance: 2.5, target: this.aimTarget, targetStaggered: true, rageReady: this.rage >= 100, sequence: this.attackSequence++ });
     const duration = this.characterAnimator?.durationNamed(move.name) ?? move.duration;
-    this.attack = { kind: "counter", stage: 0, time: 0, duration, hitAt: duration * (move.hitStart / move.duration), didHit: false, queued: null, pulse: 0, move, target: this.aimTarget };
+    this.attack = { kind: "counter", stage: 0, time: 0, duration, hitAt: duration * (move.hitStart / move.duration), hitEndAt: duration * (move.hitEnd / move.duration), didHit: false, connected: false, queued: null, pulse: 0, move, target: this.aimTarget };
     this.mode = "counter";
     this.characterAnimator?.playNamed(move.name, false, 1.06, true);
     this.world.audio.play("counter", 1.12);
@@ -1282,7 +1338,7 @@ class Player {
     if (this.world.input.isDemo && runtimeFlags.combatAudit) console.info("[CombatAudit] musou started rageSpent=100");
     if (this.world.input.isDemo && runtimeFlags.adversarialAudit) console.info("[AdversarialAudit] musou started rageSpent=100");
     const move = selectAttackMove({ kind: "musou", stage: 0, directionX: 0, directionY: 1, afterDodge: false, afterJustGuard: false, afterClash: false, distance: 2.5, target: this.aimTarget, targetStaggered: this.world.currentTarget()?.heartIsOpen() ?? false, rageReady: true, sequence: this.attackSequence++ });
-    this.attack = { kind: "musou", stage: 0, time: 0, duration: 1.28, hitAt: 0, didHit: false, queued: null, pulse: 0, move, target: this.aimTarget };
+    this.attack = { kind: "musou", stage: 0, time: 0, duration: 1.28, hitAt: 0, hitEndAt: 1.28, didHit: false, connected: false, queued: null, pulse: 0, move, target: this.aimTarget };
     this.mode = "musou";
     this.characterAnimator?.playNamed(move.name, false, 1.08, true);
     this.routeLabel = "怒破 — RAGE RELEASE";
@@ -1294,6 +1350,7 @@ class Player {
       this.weaponPivot.rotation.z = lerpAngle(this.weaponPivot.rotation.z, 0.22, clamp(delta * 10, 0, 1));
       return;
     }
+    const previousTime = this.attack.time;
     this.attack.time += delta;
     const phase = clamp(this.attack.time / this.attack.duration, 0, 1);
     const isFinisher = this.attack.kind === "heavy" && this.attack.stage > 0;
@@ -1310,6 +1367,9 @@ class Player {
         : Math.sin(phase * Math.PI) * 2.95;
     this.weaponPivot.rotation.z = isMusou ? swing : isCounter ? -2.1 + swing : isFinisher ? -1.25 + swing : -0.55 + swing;
     this.weaponPivot.rotation.x = this.attack.kind === "heavy" || isCounter || isMusou ? -Math.sin(phase * Math.PI * (isMusou ? 4 : 1)) * (isFinisher || isCounter || isMusou ? 1.05 : 0.7) : 0;
+    if (this.characterVisual && this.attack.move.rotation !== 0) {
+      this.characterVisual.rotation.y = Math.sin(phase * Math.PI) * this.attack.move.rotation;
+    }
     if (isMusou) {
       const target = this.world.currentTarget();
       if (target) {
@@ -1337,12 +1397,13 @@ class Player {
           this.attack.target,
           this.attack.move,
         );
-        this.world.effects.push(new CombatEffect(this.world.scene, this.root.position.add(new Vector3(0, 0.34, 0)), "heavy", this.world.materials));
+        if (hit > 0) this.attack.connected = true;
+        this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.34, 0)), "heavy");
         this.world.burstRageText(this.root.position.add(new Vector3(0, 1.1, 0)), finalPulse ? 4 : 2, 1.12 + this.attack.pulse * 0.12);
         this.world.addCameraShake(0.66 + hit * 0.06);
         this.attack.pulse += 1;
       }
-    } else if (!this.attack.didHit && this.attack.time >= this.attack.hitAt) {
+    } else if (!this.attack.didHit && previousTime <= this.attack.hitEndAt && this.attack.time >= this.attack.hitAt) {
       this.attack.didHit = true;
       const forward = forwardFromYaw(this.root.rotation.y);
       const hit = this.world.hitEnemies(
@@ -1356,21 +1417,23 @@ class Player {
         this.attack.target,
         this.attack.move,
       );
+      this.attack.connected = hit > 0;
       if (this.world.consumeAttackClash()) {
         this.cancelAttackForClash();
         return;
       }
       if (isFinisher || isCounter) {
         this.world.addCameraShake((isCounter ? 0.9 : 0.58) + hit * 0.1);
-        this.world.effects.push(new CombatEffect(this.world.scene, this.root.position.add(forward.scale(2.2)).add(new Vector3(0, 0.3, 0)), "heavy", this.world.materials));
+        this.world.spawnEffect(this.root.position.add(forward.scale(2.2)).add(new Vector3(0, 0.3, 0)), "heavy");
       }
       if (hit === 0) {
         this.world.session.recordMiss();
         this.world.audio.playWhiff(this.attack.kind === "heavy" || isCounter ? 1.15 : 0.82);
-        this.world.effects.push(new CombatEffect(this.world.scene, this.root.position.add(forward.scale(2.0)).add(new Vector3(0, 1.1, 0)), "miss", this.world.materials));
+        this.world.spawnEffect(this.root.position.add(forward.scale(2.0)).add(new Vector3(0, 1.1, 0)), "miss");
       }
     }
-    if (this.attack.time >= this.attack.duration) {
+    const recovery = isMusou ? 0 : this.attack.connected ? this.attack.move.hitRecovery : this.attack.move.whiffRecovery;
+    if (this.attack.time >= this.attack.duration + recovery) {
       const queued = this.attack.queued;
       const chain = queued === "light" && this.attack.kind === "light" && this.attack.stage < 3;
       const finisher = queued === "heavy" && this.attack.kind === "light";
@@ -1403,7 +1466,7 @@ class Player {
   prepareAttackClashAudit() {
     const move = selectAttackMove({ kind: "heavy", stage: 0, directionX: 0, directionY: 1, afterDodge: false, afterJustGuard: false, afterClash: false, distance: 2.5, target: "torso", targetStaggered: false, rageReady: false, sequence: this.attackSequence++ });
     const duration = this.characterAnimator?.durationNamed(move.name) ?? move.duration;
-    this.attack = { kind: "heavy", stage: 0, time: duration * 0.52, duration, hitAt: duration * 0.43, didHit: false, queued: null, pulse: 0, move, target: "torso" };
+    this.attack = { kind: "heavy", stage: 0, time: duration * 0.52, duration, hitAt: duration * 0.43, hitEndAt: duration * 0.66, didHit: false, connected: false, queued: null, pulse: 0, move, target: "torso" };
     this.mode = "heavy";
     this.routeLabel = "AUDIT · ATTACK CLASH";
   }
@@ -1456,7 +1519,7 @@ class Player {
       this.addRage(1);
       this.world.haptics.trigger("guard");
       this.world.audio.playDefense(0.72);
-      this.world.effects.push(new CombatEffect(this.world.scene, this.root.position.add(new Vector3(0, 1.1, 0)), "guard", this.world.materials));
+      this.world.spawnEffect(this.root.position.add(new Vector3(0, 1.1, 0)), "guard");
       return "guard" as const;
     }
     this.hurtCooldown = 0.52;
@@ -1471,7 +1534,7 @@ class Player {
     if (isDignityLost(this.dignity) && !this.poopTransformed) this.transformToPoop();
     this.root.position.addInPlace(from.scale(0.28));
     this.world.addCameraShake(0.5);
-    this.world.effects.push(new CombatEffect(this.world.scene, this.root.position.add(new Vector3(0, 1.1, 0)), "hurt", this.world.materials));
+    this.world.spawnEffect(this.root.position.add(new Vector3(0, 1.1, 0)), "hurt");
     if (this.health <= 0) this.mode = "fallen";
     return "hit" as const;
   }
@@ -1481,24 +1544,27 @@ class Player {
     this.rage = clamp(this.rage + amount * comebackMultiplier, 0, 100);
   }
 
+  counterReady() {
+    return this.counterWindow > 0;
+  }
+
   private transformToPoop() {
     this.poopTransformed = true;
     this.world.session.recordPoopTransformation();
     this.world.triggerDignityLoss(this.root.position, true);
-    const previous = this.characterVisual;
     const previousAnimator = this.characterAnimator;
     this.world.characters.attach("poop", this.root, 0.84, (visual, animator) => {
       this.characterVisual = visual;
       this.characterAnimator = animator;
-      this.playCharacterMotion(this.mode === "fallen" ? "dead" : "idle", this.mode !== "fallen");
+      if (this.attack) animator.playNamed(this.attack.move.name, false, 1, true);
+      else this.playCharacterMotion(this.mode === "fallen" ? "dead" : this.mode === "guard" ? "guard" : "idle", this.mode !== "fallen");
       previousAnimator?.dispose();
-      previous?.dispose(false, true);
     });
   }
 
   dispose() {
     this.characterAnimator?.dispose();
-    this.root.dispose(false, true);
+    this.root.dispose(false, false);
   }
 }
 
@@ -1540,6 +1606,7 @@ class BarbarianEnemy {
   private chargeTrailClock = 0;
   private feintUsed = false;
   private readonly heartMeshes: Mesh[] = [];
+  private readonly hitMeshes: Record<HitLocation, Mesh[]> = { head: [], torso: [], heart: [] };
 
   constructor(private readonly world: GameWorld, position: Vector3, spawnDelay: number, readonly variant: EnemyCharacterKey) {
     const { scene, materials } = world;
@@ -1582,6 +1649,8 @@ class BarbarianEnemy {
     head.parent = this.root;
     head.position.y = 2.25;
     head.material = materials.enemySkin;
+    this.hitMeshes.head.push(head);
+    this.hitMeshes.torso.push(this.torso);
     const hair = MeshBuilder.CreateBox("barbarianMohawk", { width: 0.24, height: 0.16, depth: 0.56 }, scene);
     hair.parent = this.root;
     hair.position.set(0, 2.54, 0);
@@ -1667,7 +1736,7 @@ class BarbarianEnemy {
       this.characterVisual = visual;
       this.characterAnimator = animator;
       this.outlineMeshes.push(...visual.getChildMeshes(false).filter((mesh): mesh is Mesh => mesh instanceof Mesh));
-      this.heartMeshes.push(...visual.getChildMeshes(false).filter((mesh): mesh is Mesh => mesh instanceof Mesh && /heart|cavity|aorta|pectoral/i.test(mesh.name)));
+      this.registerVisualHitMeshes(visual);
       this.outlineActive = false;
       this.setRageOutline(this.world.player.rage >= 100);
       this.playCharacterMotion("idle", true);
@@ -1821,7 +1890,7 @@ class BarbarianEnemy {
       this.root.position.addInPlace(this.chargeDirection.scale(delta * (this.health < this.maxHealth * 0.5 ? 11.6 : 10.2)));
       if (this.chargeTrailClock <= 0) {
         this.chargeTrailClock = 0.18;
-        this.world.effects.push(new CombatEffect(this.world.scene, this.root.position.add(new Vector3(0, 0.12, 0)), "miss", this.world.materials));
+        this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.12, 0)), "miss");
       }
       const chargeDistance = Vector3.Distance(this.root.position, this.world.player.root.position);
       if (!this.dealtDamage && chargeDistance < 1.35) {
@@ -1848,7 +1917,7 @@ class BarbarianEnemy {
         this.timer = 2.65;
         this.openHeart(2.65, "壁へ激突・心臓露出");
         this.world.addCameraShake(0.85);
-        this.world.effects.push(new CombatEffect(this.world.scene, this.root.position.add(new Vector3(0, 0.3, 0)), "heavy", this.world.materials));
+        this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.3, 0)), "heavy");
         return;
       }
       if (this.timer <= 0) {
@@ -1882,6 +1951,20 @@ class BarbarianEnemy {
         mesh.outlineWidth = 0;
       }
     }
+  }
+
+  private registerVisualHitMeshes(visual: TransformNode) {
+    const meshes = visual.getChildMeshes(false).filter((mesh): mesh is Mesh => mesh instanceof Mesh);
+    const collect = (pattern: RegExp, preferred: RegExp) => meshes
+      .filter((mesh) => pattern.test(mesh.name))
+      .sort((left, right) => Number(preferred.test(right.name)) - Number(preferred.test(left.name)));
+    const head = collect(/head|skull|face|jaw|beak|muzzle|horn|mane/i, /head$/i);
+    const torso = collect(/torso|chest|pectoral|abdomen|spine|belly|trunk/i, /torso$/i);
+    const heart = collect(/heart|cavity|aorta/i, /heartbody$/i);
+    if (head.length > 0) this.hitMeshes.head = head;
+    if (torso.length > 0) this.hitMeshes.torso = torso;
+    if (heart.length > 0) this.hitMeshes.heart = heart;
+    this.heartMeshes.push(...heart);
   }
 
   private beginTelegraph() {
@@ -2016,6 +2099,20 @@ class BarbarianEnemy {
     return this.heartOpenTime > 0;
   }
 
+  targetPoint(location: HitLocation) {
+    const target = this.hitMeshes[location].find((mesh) => !mesh.isDisposed());
+    if (target) {
+      target.computeWorldMatrix(true);
+      return target.getBoundingInfo().boundingBox.centerWorld.clone();
+    }
+    const height = location === "head" ? 2.25 : location === "heart" ? 1.52 : 1.35;
+    return this.root.position.add(new Vector3(0, height * this.baseScale, 0));
+  }
+
+  targetRadius(location: HitLocation) {
+    return TARGET_VOLUME_RADIUS[location];
+  }
+
   scoreMultiplier() {
     return this.balanceProfile.scoreMultiplier;
   }
@@ -2095,16 +2192,16 @@ class BarbarianEnemy {
   private transformToPoop() {
     this.poopTransformed = true;
     this.world.triggerDignityLoss(this.root.position, false);
-    const previous = this.characterVisual;
     const previousAnimator = this.characterAnimator;
     this.world.characters.attach("poop", this.root, 0.82, (visual, animator) => {
       this.characterVisual = visual;
       this.characterAnimator = animator;
       this.heartMeshes.length = 0;
-      this.heartMeshes.push(this.torso, ...visual.getChildMeshes(false).filter((mesh): mesh is Mesh => mesh instanceof Mesh && /heart|cavity|aorta|pectoral/i.test(mesh.name)));
-      this.playCharacterMotion(this.mode === "dead" ? "dead" : "idle", this.mode !== "dead");
+      this.heartMeshes.push(this.torso);
+      this.registerVisualHitMeshes(visual);
+      if (this.currentAttackMove && (this.mode === "strike" || this.mode === "charge")) animator.playNamed(this.currentAttackMove.name, false, 1, true);
+      else this.playCharacterMotion(this.mode === "dead" ? "dead" : this.mode === "stagger" ? "hurt" : "idle", this.mode !== "dead" && this.mode !== "stagger");
       previousAnimator?.dispose();
-      previous?.dispose(false, true);
     });
   }
 
@@ -2146,7 +2243,7 @@ class BarbarianEnemy {
 
   dispose() {
     this.characterAnimator?.dispose();
-    this.root.dispose(false, true);
+    this.root.dispose(false, false);
   }
 }
 
@@ -2157,11 +2254,10 @@ class CombatEffect {
   private time = 0;
   done = false;
 
-  constructor(scene: Scene, position: Vector3, kind: CombatEffectKind, materials: ArenaMaterials) {
+  constructor(scene: Scene, readonly kind: CombatEffectKind, materials: ArenaMaterials) {
     const diameter = kind === "clash" ? 1.55 : kind === "heart" ? 1.25 : kind === "head" ? 0.92 : kind === "heavy" ? 0.8 : kind === "guard" ? 1.15 : kind === "dust" ? 0.35 : 0.45;
     const thickness = kind === "clash" || kind === "heart" ? 0.12 : kind === "guard" || kind === "head" ? 0.085 : kind === "dust" ? 0.035 : 0.055;
     this.ring = MeshBuilder.CreateTorus("impactRing", { diameter, thickness, tessellation: kind === "dust" ? 10 : 16 }, scene);
-    this.ring.position.copyFrom(position);
     this.ring.rotation.x = Math.PI / 2;
     this.ring.material = kind === "heart"
       ? materials.heart
@@ -2174,6 +2270,15 @@ class CombatEffect {
             : kind === "guard" || kind === "clash"
               ? materials.playerBronze
               : materials.impact;
+    this.ring.setEnabled(false);
+  }
+
+  reset(position: Vector3) {
+    this.time = 0;
+    this.done = false;
+    this.ring.position.copyFrom(position);
+    this.ring.scaling.setAll(1);
+    this.ring.setEnabled(true);
   }
 
   update(delta: number) {
@@ -2183,7 +2288,7 @@ class CombatEffect {
     this.ring.position.y += delta * 0.15;
     if (this.time > 0.34) {
       this.done = true;
-      this.dispose();
+      this.ring.setEnabled(false);
     }
   }
 

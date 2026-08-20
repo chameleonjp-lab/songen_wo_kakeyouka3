@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent } from "react";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { arenaAssets } from "@/game/assets";
+import { loadCombatAudioSettings } from "@/game/CombatAudio";
+import { loadHapticsPreference } from "@/game/Haptics";
 import type { HitLocation } from "@/game/HitLocations";
 import type { RunResult } from "@/game/GameSession";
 import { TouchLookController } from "@/game/TouchLookController";
@@ -58,6 +60,7 @@ type RawHudPayload = Partial<{
   heartOpen: boolean;
   notice: string;
   guardBreak: number;
+  counterReady: boolean;
   loadState: string;
   combo: number;
   result: RunResult | null;
@@ -87,6 +90,7 @@ type HudState = {
   heartOpen: boolean;
   notice: string;
   guardBreak: number;
+  counterReady: boolean;
   loadState: string;
   paused: boolean;
   started: boolean;
@@ -127,6 +131,7 @@ const INITIAL_HUD: HudState = {
   heartOpen: false,
   notice: "",
   guardBreak: 0,
+  counterReady: false,
   loadState: "idle",
   paused: false,
   started: false,
@@ -178,8 +183,9 @@ function normalizeHud(raw: RawHudPayload): HudState {
     aimTarget: raw.aimTarget === "head" || raw.aimTarget === "heart" ? raw.aimTarget : "torso",
     lockTarget,
     heartOpen: Boolean(raw.heartOpen),
-    notice: String(raw.notice ?? raw.route ?? ""),
+    notice: String(raw.notice || raw.route || ""),
     guardBreak: bounded(finiteNumber(raw.guardBreak, 0)),
+    counterReady: Boolean(raw.counterReady),
     loadState: String(raw.loadState ?? (raw.started ? "ready" : "idle")),
     paused: Boolean(raw.paused),
     started: Boolean(raw.started),
@@ -229,7 +235,7 @@ function meterPercent(value: number, max: number) {
 
 function Meter({ label, value, max, tone, ready = false }: { label: string; value: number; max: number; tone: "health" | "dignity" | "rage"; ready?: boolean }) {
   return (
-    <div className={`meter-block ${ready ? "meter-ready" : ""}`}>
+    <div className={`meter-block ${ready ? "meter-ready" : ""} ${tone === "dignity" && value <= 0 ? "meter-broken" : ""}`}>
       <div className="meter-label"><span>{label}</span><strong>{Math.round(Math.max(0, value))}<small>/{Math.round(max)}</small></strong></div>
       <div className={`meter-track ${tone}`}><div className="meter-fill" style={{ width: `${meterPercent(value, max)}%` }} /></div>
     </div>
@@ -299,6 +305,7 @@ function ResultBreakdown({ result }: { result: RunResult }) {
     ["ジャストガード", result.justGuards],
     ["攻撃相殺", result.clashes],
     ["最大コンボ", result.maxCombo],
+    ["命中精度", `${result.accuracyPercent}%`],
     ["使用技数", result.uniqueMoves],
     ["被ダメージ", result.damageTaken],
     ["尊厳喪失", result.dignityLost],
@@ -326,15 +333,19 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
   const [entryRoars, setEntryRoars] = useState<EntryRoarTrace>({});
   const [pressedTouch, setPressedTouch] = useState<Record<string, boolean>>({});
   const [showControls, setShowControls] = useState(false);
-  const [masterVolume, setMasterVolume] = useState(0.18);
-  const [musicVolume, setMusicVolume] = useState(0.7);
-  const [sfxVolume, setSfxVolume] = useState(1);
-  const [ambientVolume, setAmbientVolume] = useState(0.72);
-  const [muted, setMuted] = useState(false);
-  const [hapticsEnabled, setHapticsEnabled] = useState(true);
+  const initialAudioSettings = useMemo(() => loadCombatAudioSettings(), []);
+  const [masterVolume, setMasterVolume] = useState(initialAudioSettings.master);
+  const [musicVolume, setMusicVolume] = useState(initialAudioSettings.music);
+  const [sfxVolume, setSfxVolume] = useState(initialAudioSettings.sfx);
+  const [ambientVolume, setAmbientVolume] = useState(initialAudioSettings.ambient);
+  const [muted, setMuted] = useState(initialAudioSettings.muted);
+  const [hapticsEnabled, setHapticsEnabled] = useState(() => loadHapticsPreference() ?? true);
   const [shakeMode, setShakeMode] = useState<ShakeMode>("full");
   const [shareStatus, setShareStatus] = useState("");
   const [contextLost, setContextLost] = useState(false);
+  const [sceneError, setSceneError] = useState("");
+  const [assetNotice, setAssetNotice] = useState("");
+  const assetNoticeTimerRef = useRef<number | null>(null);
   const query = useMemo(() => new URLSearchParams(window.location.search), []);
   const isDemo = query.has("demo");
   const audioDebug = query.has("audioDebug");
@@ -356,11 +367,30 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
   const command = useCallback((value: string, payload?: string | number | boolean) => dispatchCommand(value, payload), []);
 
   useEffect(() => {
+    const resetTouchPresentation = () => {
+      setPressedTouch({});
+      lookControllerRef.current = new TouchLookController();
+    };
+    const onVisibilityReset = () => {
+      if (document.hidden) resetTouchPresentation();
+    };
+    window.addEventListener("blur", resetTouchPresentation);
+    window.addEventListener("orientationchange", resetTouchPresentation);
+    document.addEventListener("visibilitychange", onVisibilityReset);
+    return () => {
+      window.removeEventListener("blur", resetTouchPresentation);
+      window.removeEventListener("orientationchange", resetTouchPresentation);
+      document.removeEventListener("visibilitychange", onVisibilityReset);
+    };
+  }, []);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || startedRef.current) return;
     startedRef.current = true;
     contextLostRef.current = false;
     setContextLost(false);
+    setSceneError("");
     const isCoarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
     const isAppleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     const maxDevicePixelRatio = isAppleMobile ? 1.35 : isCoarsePointer ? 1.5 : 2;
@@ -395,17 +425,23 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
       engine.resize();
       resumeRenderLoop();
     };
-    void createGameScene(engine, canvas, playerName).then((game) => {
-      if (disposed) {
-        game.dispose();
-        return;
-      }
-      handle = game;
-      if (autoStart) game.start();
-      if (autoStart && new URLSearchParams(window.location.search).has("launchAudit")) console.info("[LaunchAudit] game started");
-      renderLoop = () => game.scene.render();
-      if (!document.hidden) engine.runRenderLoop(renderLoop);
-    });
+    void createGameScene(engine, canvas, playerName)
+      .then((game) => {
+        if (disposed) {
+          game.dispose();
+          return;
+        }
+        handle = game;
+        if (autoStart) game.start();
+        if (autoStart && query.has("launchAudit")) console.info("[LaunchAudit] game started");
+        renderLoop = () => game.scene.render();
+        if (!document.hidden) engine.runRenderLoop(renderLoop);
+      })
+      .catch((error) => {
+        if (disposed) return;
+        console.error("Game scene initialization failed", error);
+        setSceneError("3D闘技場を開始できませんでした。再読み込みしてもう一度お試しください。");
+      });
     const onResize = () => engine.resize();
     const onHud = (event: Event) => setHud(normalizeHud((event as CustomEvent<RawHudPayload>).detail ?? {}));
     const onEntryRoar = (event: Event) => {
@@ -414,12 +450,20 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
       setEntryRoars((current) => ({ ...current, [detail.variant]: { count: detail.count, pan: detail.pan, reverb: detail.reverb } }));
       if (audioDebug) console.info(`[AudioDebug] entry roar ${detail.variant} count=${detail.count} pan=${detail.pan.toFixed(2)} reverb=${detail.reverb}`);
     };
+    const onAssetError = (event: Event) => {
+      const message = (event as CustomEvent<{ message?: string }>).detail?.message;
+      if (!message) return;
+      setAssetNotice(message);
+      if (assetNoticeTimerRef.current !== null) window.clearTimeout(assetNoticeTimerRef.current);
+      assetNoticeTimerRef.current = window.setTimeout(() => setAssetNotice(""), 4200);
+    };
     window.addEventListener("resize", onResize);
     document.addEventListener("visibilitychange", onVisibility);
     canvas.addEventListener("webglcontextlost", onContextLost, false);
     canvas.addEventListener("webglcontextrestored", onContextRestored, false);
     window.addEventListener("arena-hud", onHud);
     window.addEventListener("arena-entry-roar", onEntryRoar);
+    window.addEventListener("arena-asset-error", onAssetError);
     return () => {
       disposed = true;
       window.removeEventListener("resize", onResize);
@@ -428,12 +472,14 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
       canvas.removeEventListener("webglcontextrestored", onContextRestored);
       window.removeEventListener("arena-hud", onHud);
       window.removeEventListener("arena-entry-roar", onEntryRoar);
+      window.removeEventListener("arena-asset-error", onAssetError);
+      if (assetNoticeTimerRef.current !== null) window.clearTimeout(assetNoticeTimerRef.current);
       pauseRenderLoop();
       handle?.dispose();
       engine.dispose();
       startedRef.current = false;
     };
-  }, [audioDebug, autoStart, playerName]);
+  }, [audioDebug, autoStart, playerName, query]);
 
   const onDirectionPointer = (direction: TouchDirection, active: boolean, event: ReactPointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -532,7 +578,7 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
     command("shake", value);
   };
 
-  const isLoading = hud.loadState === "loading" || (autoStart && !isDemo && !hud.started && !hud.result);
+  const isLoading = !sceneError && (hud.loadState === "loading" || (autoStart && !isDemo && !hud.started && !hud.result));
   const showTouchUi = hud.started && !hud.result;
   const lockLabel = hud.lockTarget ? "LOCK ON" : "FREE LOOK";
   const statusText = hud.notice || (hud.heartOpen ? "心臓が開いた — 狙いを切り替えろ" : "戦列を見極めろ");
@@ -554,7 +600,7 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
         onTouchMove={preventTouchScroll}
       ><span>DRAG TO LOOK</span></div>
 
-      <section className="arena-hud" aria-live="polite">
+      <section className="arena-hud">
         <div className="hud-top">
           <FighterCard side="player" player name={hud.playerName || playerName} health={hud.playerHealth} maxHealth={hud.playerMaxHealth} dignity={hud.playerDignity} maxDignity={hud.playerMaxDignity} rage={hud.rage} />
           <div className="brand-lockup">
@@ -585,8 +631,9 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
           <div className="combat-strip" aria-label="キーボード操作">
             <span className="keycap">J</span><b>弱</b><span className="keycap">K</span><b>強</b><span className="keycap">L</span><b>防御</b><span className="keycap">F</span><b>怒破</b><span className="keycap">SPACE</span><b>回避</b>
           </div>
-          <div className={`status-pill ${hud.heartOpen || hud.guardBreak > 70 ? "finisher-active" : ""}`}>
+          <div className={`status-pill ${hud.heartOpen || hud.guardBreak > 70 ? "finisher-active" : ""}`} aria-live="polite">
             <span>{statusText}</span>
+            {hud.counterReady && <small>カウンター受付：強攻撃</small>}
             {hud.guardBreak > 0 && <small>ガード崩し {Math.round(hud.guardBreak)}%</small>}
           </div>
           <div className="combat-meta"><span>狙い切替 Q / TAB</span><span>経過 {formatClock(hud.elapsedSeconds)}</span></div>
@@ -665,6 +712,19 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
           </div>
         </section>
       )}
+
+      {sceneError && (
+        <section className="graphics-recovery-overlay" role="alert" aria-live="assertive">
+          <div className="graphics-recovery-panel">
+            <p className="eyebrow">ARENA START FAILED</p>
+            <h2>闘技場を開始できません</h2>
+            <p>{sceneError}</p>
+            <button className="enter-button" type="button" onClick={() => window.location.reload()}>再試行</button>
+          </div>
+        </section>
+      )}
+
+      {assetNotice && <aside className="asset-error-notice" role="status">{assetNotice}</aside>}
 
       {audioDebug && (
         <aside className="audio-debug-panel" aria-label="Enemy entry roar trace">

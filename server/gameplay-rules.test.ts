@@ -7,6 +7,7 @@ import {
   DEFAULT_DIGNITY_CONFIG,
   DEFAULT_ENEMY_ROSTER,
   DEFAULT_HIT_LOCATION_TUNING,
+  TARGET_VOLUME_RADIUS,
   ENEMY_ROSTER_ORDER,
   ENEMY_ATTACK_SETS,
   applyDignityDamage,
@@ -88,6 +89,8 @@ describe("head, torso and conditional heart hit locations", () => {
     expect(openHeart.location).toBe("heart");
     expect(openHeart.damage).toBeGreaterThan(torso.damage);
     expect(openHeart.scoreMultiplier).toBeGreaterThan(torso.scoreMultiplier);
+    expect(TARGET_VOLUME_RADIUS.heart).toBeLessThan(TARGET_VOLUME_RADIUS.head);
+    expect(TARGET_VOLUME_RADIUS.head).toBeLessThan(TARGET_VOLUME_RADIUS.torso);
   });
 });
 
@@ -157,6 +160,8 @@ describe("score ledger", () => {
     expect(state.dignityLost).toBe(3);
     expect(state.poopTransformations).toBe(1);
     expect(state.total).toBe(positive - 20 - 30 - 250);
+    state = applyScoreEvent(state, { type: "miss" });
+    expect(state.misses).toBe(1);
   });
 
   it("awards up to 1500 for each short round and records total elapsed separately", () => {

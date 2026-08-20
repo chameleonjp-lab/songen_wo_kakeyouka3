@@ -34,4 +34,4 @@
 - [ ] 44全クリップをすべて別のゲーム状態へ割り当てる。現状は40攻撃カタログと4基本状態、状態別alias／fallbackの組み合わせである。
 - [ ] GLB・画像・生成元データの個別ライセンスとクレジットを確定する（権利者の確認なしにMIT等と断定しない）。
 
-検証結果の詳細は [ADVERSARIAL_TEST_REPORT.md](ADVERSARIAL_TEST_REPORT.md)、未解決事項は [KNOWN_ISSUES.md](KNOWN_ISSUES.md) に残す。
+旧実装の検証履歴は [ADVERSARIAL_TEST_REPORT.md](ADVERSARIAL_TEST_REPORT.md)、現行ブランチの未解決事項は [KNOWN_ISSUES.md](KNOWN_ISSUES.md) に分離して残す。

@@ -21,6 +21,7 @@ export type RunResult = Readonly<{
   clashes: number;
   uniqueMoves: number;
   maxCombo: number;
+  accuracyPercent: number;
   damageTaken: number;
   dignityLost: number;
   poopTransformations: number;
@@ -34,10 +35,10 @@ export type RankingSubmission = Readonly<{
   metadata: Omit<RunResult, "playerName" | "score" | "personalBest" | "isNewBest">;
 }>;
 
-function gradeResult(score: number, defeated: number, health: number, dignity: number): RunResult["grade"] {
+function gradeResult(score: number, defeated: number, health: number, dignity: number, accuracy: number): RunResult["grade"] {
   const completion = defeated / 6;
   const preservation = (Math.max(0, health) + Math.max(0, dignity)) / 200;
-  const value = score / 11_000 + completion * 0.45 + preservation * 0.2;
+  const value = score / 11_000 + completion * 0.4 + preservation * 0.18 + accuracy * 0.12;
   if (defeated === 6 && value >= 1.25) return "S";
   if (defeated === 6 && value >= 0.95) return "A";
   if (value >= 0.68) return "B";
@@ -108,6 +109,8 @@ export class GameSession {
     if (reason === "victory") this.scoreState = applyScoreEvent(this.scoreState, { type: "clear" });
     const previousBest = loadPersonalBest();
     const personalBest = savePersonalBest(this.scoreState.total);
+    const attempts = this.scoreState.hits + this.scoreState.misses;
+    const accuracy = attempts > 0 ? this.scoreState.hits / attempts : 0;
     this.finalResult = Object.freeze({
       playerName: this.playerName,
       reason,
@@ -125,10 +128,11 @@ export class GameSession {
       clashes: this.scoreState.clashes,
       uniqueMoves: this.scoreState.uniqueMoves,
       maxCombo: this.scoreState.maxCombo,
+      accuracyPercent: Math.round(accuracy * 100),
       damageTaken: Math.round(this.scoreState.damageTaken),
       dignityLost: Math.round(this.scoreState.dignityLost),
       poopTransformations: this.scoreState.poopTransformations,
-      grade: gradeResult(this.scoreState.total, this.scoreState.defeats, remainingHealth, remainingDignity),
+      grade: gradeResult(this.scoreState.total, this.scoreState.defeats, remainingHealth, remainingDignity, accuracy),
     });
     return this.finalResult;
   }

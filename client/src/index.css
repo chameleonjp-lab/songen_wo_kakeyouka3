@@ -29,6 +29,8 @@ button { font: inherit; }
 .meter-track { height: 8px; padding: 1px; background: rgba(10,9,8,.74); border: 1px solid rgba(219,167,93,.46); clip-path: polygon(0 0, 100% 0, 97% 100%, 0 100%); }
 .meter-fill { height: 100%; transition: width .15s linear; }
 .health .meter-fill { background: linear-gradient(90deg, #8d261e, #d65032); }
+.dignity .meter-fill { background: linear-gradient(90deg, #6e5731, #e4bd73); }
+.meter-broken .meter-label { color: #df6b54; text-decoration: line-through; }.meter-broken .meter-track { border-color: #d04f3d; background: repeating-linear-gradient(135deg, rgba(133, 36, 29, .72) 0 5px, rgba(15, 8, 7, .9) 5px 10px); box-shadow: 0 0 14px rgba(204, 55, 38, .45); }
 .rage .meter-fill { background: linear-gradient(90deg, #7d481a, #f2a13b); }
 .meter-ready .meter-label strong { color: #fff0c7; text-shadow: 0 0 12px rgba(245,168,70,.9); }.meter-ready .meter-track { border-color: #f3ad4f; box-shadow: 0 0 14px rgba(244,148,43,.48); }.meter-ready .meter-fill { background: linear-gradient(90deg, #c8611d, #fff0b4); }
 .brand-lockup { display: flex; align-items: center; gap: 10px; margin-top: -2px; opacity: .94; }
@@ -255,6 +257,7 @@ body { -webkit-tap-highlight-color: transparent; }
 .graphics-recovery-panel { width: min(420px, 100%); padding: 30px 26px; text-align: center; color: #f5e6cd; background: rgba(13, 10, 8, .96); border-top: 1px solid rgba(218, 157, 73, .66); border-bottom: 1px solid rgba(218, 157, 73, .35); box-shadow: 0 24px 70px rgba(0, 0, 0, .64); }
 .graphics-recovery-panel h2 { margin: 0; font-family: Oswald, "Noto Sans JP", sans-serif; font-size: clamp(28px, 5vw, 42px); font-weight: 500; }
 .graphics-recovery-panel p:not(.eyebrow) { margin: 13px auto 22px; color: #c1af95; font-size: 12px; line-height: 1.8; }
+.asset-error-notice { position: absolute; z-index: 22; left: 50%; bottom: calc(148px + var(--arena-safe-bottom)); width: min(520px, calc(100vw - 28px)); padding: 9px 14px; transform: translateX(-50%); color: #ffe2b8; background: rgba(91, 35, 20, .94); border: 1px solid rgba(239, 173, 89, .66); box-shadow: 0 8px 26px rgba(0, 0, 0, .42); font-size: 11px; line-height: 1.5; text-align: center; pointer-events: none; }
 
 @media (pointer: coarse), (max-width: 820px) {
   .touch-camera-surface { display: block; pointer-events: auto; }

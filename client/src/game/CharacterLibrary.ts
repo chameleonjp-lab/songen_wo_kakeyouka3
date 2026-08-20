@@ -55,8 +55,9 @@ const motionAliases: Record<CharacterMotion, string[]> = {
 export class CharacterAnimator {
   private current: AnimationGroup | null = null;
   private readonly groupsByName: Map<string, AnimationGroup>;
+  private disposed = false;
 
-  constructor(private readonly groups: AnimationGroup[]) {
+  constructor(private readonly groups: AnimationGroup[], private readonly disposeOwnedNodes?: () => void) {
     makeRootMotionInPlace(groups);
     this.groupsByName = new Map(groups.map((group) => [group.name.toLowerCase(), group]));
     for (const group of groups) {
@@ -91,8 +92,11 @@ export class CharacterAnimator {
   }
 
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
     this.stop();
     this.groups.forEach((group) => group.dispose());
+    this.disposeOwnedNodes?.();
   }
 
   duration(motion: CharacterMotion, speedRatio = 1) {
@@ -118,7 +122,7 @@ export class CharacterAnimator {
     this.current = group;
     group.speedRatio = speedRatio;
     group.reset();
-    group.start(loop);
+    group.start(loop, speedRatio);
     return true;
   }
 
@@ -212,7 +216,16 @@ export class CharacterLibrary {
 
   private attachPrepared(key: CharacterKey, container: AssetContainer, anchor: TransformNode, scale: number, onReady: (instance: TransformNode, animator: CharacterAnimator) => void) {
     const entries = container.instantiateModelsToScene((name) => `character-${key}-${this.serial}-${name}`);
-    this.attachVisual(key, entries.rootNodes, entries.animationGroups, anchor, scale, onReady);
+    this.attachVisual(
+      key,
+      entries.rootNodes,
+      entries.animationGroups,
+      anchor,
+      scale,
+      onReady,
+      () => entries.skeletons.forEach((skeleton) => skeleton.dispose()),
+      false,
+    );
     this.tracePreload("consumed", key);
   }
 
@@ -220,7 +233,16 @@ export class CharacterLibrary {
     if (isFallback) this.tracePreload("fallback", key);
     void SceneLoader.ImportMeshAsync("", "", characterAssets[key], this.scene)
       .then((result) => {
-        this.attachVisual(key, result.meshes, result.animationGroups, anchor, scale, onReady);
+        this.attachVisual(
+          key,
+          result.meshes,
+          result.animationGroups,
+          anchor,
+          scale,
+          onReady,
+          () => result.skeletons.forEach((skeleton) => skeleton.dispose()),
+          true,
+        );
       })
       .catch((error) => {
         console.warn(`Unable to load ${key} character asset`, error);
@@ -228,10 +250,20 @@ export class CharacterLibrary {
       });
   }
 
-  private attachVisual(key: CharacterKey, roots: Node[], animationGroups: AnimationGroup[], anchor: TransformNode, scale: number, onReady: (instance: TransformNode, animator: CharacterAnimator) => void) {
+  private attachVisual(
+    key: CharacterKey,
+    roots: Node[],
+    animationGroups: AnimationGroup[],
+    anchor: TransformNode,
+    scale: number,
+    onReady: (instance: TransformNode, animator: CharacterAnimator) => void,
+    disposeSkeletons: () => void,
+    disposeMaterials: boolean,
+  ) {
     if (this.disposed || anchor.isDisposed()) {
       animationGroups.forEach((group) => group.dispose());
-      roots.filter((node) => !node.parent).forEach((node) => node.dispose(false, true));
+      disposeSkeletons();
+      roots.filter((node) => !node.parent).forEach((node) => node.dispose(false, disposeMaterials));
       return;
     }
     const instance = new TransformNode(`character-${key}-${this.serial++}`, this.scene);
@@ -248,7 +280,10 @@ export class CharacterLibrary {
         texture.anisotropicFilteringLevel = this.textureAnisotropy;
       });
     });
-    const animator = new CharacterAnimator(animationGroups);
+    const animator = new CharacterAnimator(animationGroups, () => {
+      disposeSkeletons();
+      if (!instance.isDisposed()) instance.dispose(false, disposeMaterials);
+    });
     animator.play("idle", true);
     onReady(instance, animator);
   }

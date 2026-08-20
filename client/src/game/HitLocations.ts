@@ -7,6 +7,11 @@ export type BodyPart = HitLocation;
 export type HitLocationInput = HitLocation | "body" | "chest" | "core" | string;
 
 export const BODY_PARTS: readonly BodyPart[] = Object.freeze(["head", "torso", "heart"]);
+export const TARGET_VOLUME_RADIUS: Readonly<Record<HitLocation, number>> = Object.freeze({
+  head: 0.54,
+  torso: 0.92,
+  heart: 0.34,
+});
 
 export type HitLocationTuning = Readonly<{
   location: HitLocation;

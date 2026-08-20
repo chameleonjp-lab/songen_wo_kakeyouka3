@@ -11,7 +11,13 @@ export type GameHandle = {
 
 export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement, playerName: string): Promise<GameHandle> {
   const scene = new Scene(engine);
-  const world = new GameWorld(scene, canvas, playerName);
+  let world: GameWorld;
+  try {
+    world = new GameWorld(scene, canvas, playerName);
+  } catch (error) {
+    scene.dispose();
+    throw error;
+  }
   scene.onBeforeRenderObservable.add(() => world.update(scene.getEngine().getDeltaTime() / 1000));
   return {
     scene,
