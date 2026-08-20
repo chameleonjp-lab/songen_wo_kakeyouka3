@@ -1,27 +1,37 @@
-# BARBARIAN ARENA — Production Plan
+# Barbarian Arena — 現行プロダクト計画
 
-## Goal
+## 公式ゴール
 
-Build a playable third-person Babylon.js combat prototype where a deliberately blocky player defeats constantly spawning humanoid barbarians inside a bounded arena using light and heavy attack combos.
+ガチョウのプレイヤーが、円形アリーナで動物の挑戦者6体を順番に倒す、三人称ブラウザ格闘プロトタイプを成立させる。1ラウンドの生存敵は最大1体。敵を倒すと短い `NEXT CHALLENGER` 幕間を挟み、次の敵が登場する。
 
-## Core loop
+旧版にあった「外縁から敵が絶えず出現する」「キル数を無限に伸ばす」「集団分離を主ループにする」という計画は正式仕様ではない。旧チェック項目を再開発の受け入れ条件に戻さない。
 
-Move inside a circular arena, acquire nearby enemies, chain light and heavy attacks, avoid telegraphed enemy swings, keep the kill counter rising, and survive against a growing group.
+## 受け入れ条件
 
-## Risk slices
-
-| Slice | Risk | Success criterion |
+| 領域 | 現行条件 | 根拠・検証箇所 |
 |---|---|---|
-| Camera + input | Third-person control can feel unstable in a browser | Keyboard movement and mouse camera keep the player readable at all times. |
-| Combat timing | Attack hit windows can feel disconnected | □/J light and △/K heavy attacks have visible wind-up, hit, recovery, and a three-step combo chain. |
-| Enemy crowd | Many enemies can overlap or fail to threaten | Enemies spawn continuously, keep separation, chase, telegraph, attack, stagger, and die. |
-| Performance | Dense 3D enemy models can harm frame time | Enemies use procedural articulated meshes and shared materials; the active crowd is capped. |
-| Visual clarity | Realistic-looking enemy request conflicts with procedural prototype | Generated warrior texture sheets are applied to segmented 3D enemy bodies; player remains intentionally blocky. |
+| 連戦 | 開始待機3秒、6ラウンド、同時敵1体、撃破後の幕間1.8秒、6体撃破で勝利 | `GameWorld.ts`, `RoundFlow` テスト |
+| 操作 | WASD／マウス、J/K/L/F/Space、QまたはTabの狙い切替、タッチDパッドと5アクション | `InputManager.ts`, `OPERATIONS.md` |
+| 戦闘 | 弱・強、弱→強、弱→弱→強、ガード、ジャストガード、カウンター、攻撃相殺、怒破 | `GameWorld.ts`, `CombatClash`／ゲームプレイテスト |
+| ターゲット | 胴体、頭、心臓（心臓は露出状態の確認が必要） | `HitLocations.ts` |
+| スコア | ヒット位置、コンボ、固有技、撃破、時間、被ダメージ、尊厳喪失、変身を台帳化 | `Score.ts`, `GameSession.ts`, `SCORE.md` |
+| 敵 | ゴリラ→ワニ→ライオン→クマ→カバ→サイ。体力、攻撃力、速度、予兆、スコア倍率が個別設定 | `EnemyRoster.ts`, `ENEMY_SPEC.md` |
+| アセット | 16 GLBを監査。各19骨・44アニメーション（うち40攻撃）。実行時はsmooth版、失敗時は手続きメッシュ | `tools/audit_character_glbs.py --check`, `GLB_REAL_DATA_AUDIT.md` |
+| 配布 | `pnpm build` の `dist/public` をGitHub Pagesへデプロイ。サーバーバンドルはPagesへ含めない | `.github/workflows/pages.yml`, `PUBLISHING.md` |
 
-## Acceptance criteria
+## 進行順
 
-The delivered page is a full-screen playable arena. It visibly contains a third-person player, textured humanoid barbarians, a bounded fighting area, health and rage HUD, attack controls, a growing kill counter, obvious melee impacts, and an autoplay `?demo` mode for visual verification.
+1. **ルールの固定** — ロスター、ヒット位置、スコア、尊厳、入力キューの純粋なテストを先に通す。
+2. **戦闘接続** — GameWorldの状態遷移、敵1体制約、幕間、ロックオン、プリロードを確認する。
+3. **表示と音** — GLBアニメーション、攻撃予兆、ヒット表示、咆哮の立体音響、タッチHUDを確認する。
+4. **配布検証** — `check`、`test`、GLB監査、`build`、PagesのartifactパスをCIで固定する。
+5. **実機確認** — PC横画面とiPhone Safari縦画面で、起動、タッチ、音声、スクロール抑制、復帰を確認する。
 
-## Asset assignments
+## まだ受け入れ条件にしていないもの
 
-The arena floor uses the generated cracked-earth texture tiled every 2.5m. Barbarian armor and skin use the generated surface sheet as a high-detail texture layer over articulated procedural body meshes. The title/HUD uses the transparent arena sigil. The generated visual-target image is the composition reference for the camera, density, color, and HUD placement.
+- オンラインランキング、アカウント連携、サーバーへのスコア送信
+- 無限サバイバル、複数敵の同時戦闘、敵群AI
+- 全44クリップをすべて別ゲーム状態へ割り当てること（現在は40攻撃カタログと状態別エイリアス／フォールバックを分けている）
+- 素材の第三者ライセンスを推測して公開すること
+
+未完了または最終実機確認が必要な項目は [todo.md](todo.md) と [KNOWN_ISSUES.md](KNOWN_ISSUES.md) に記録し、完了扱いにしない。
