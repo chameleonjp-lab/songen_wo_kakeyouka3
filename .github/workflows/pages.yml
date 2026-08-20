@@ -36,7 +36,7 @@ jobs:
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages")"
 
           if [ "$status" = "404" ]; then
-            echo "::error title=GitHub Pages is not enabled::Enable Pages in Repository Settings → Pages → Build and deployment, set Source to GitHub Actions, then rerun this workflow. (API status ${status})"
+            echo "::error title=GitHub Pages workflow source could not be confirmed::The Pages API returned 404. Set Repository Settings → Pages → Build and deployment → Source to GitHub Actions, then rerun this workflow. A visible legacy Jekyll page is not the game deployment. (API status ${status})"
             cat "$response_file"
             exit 1
           fi
