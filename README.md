@@ -47,6 +47,7 @@ pnpm build
 - `?demo&audioAudit&audioDebug` — 敵登場咆哮、pan、reverb
 - `?demo&preloadAudit` / `?demo&preloadFailureAudit` — プリロード成功／フォールバック
 - `?demo&adversarialAudit` — 撃破境界と怒破
+- `?demo&quickAudit` — 6連戦と結果画面を短時間で確認する開発用経路
 - `?demo&animationTest=1&animationTestPhase=<idle|move|guard|light|heavy|hurt|dead>` — アニメーション検証
 
 ## 構成と資料

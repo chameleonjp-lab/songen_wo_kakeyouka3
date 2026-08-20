@@ -16,4 +16,6 @@ export const runtimeFlags = Object.freeze({
   animationTest: parameters.has("animationTest"),
   animationTestPhase: parameters.get("animationTestPhase"),
   autoMusou: parameters.has("autoMusou"),
+  // Demo-only fast path used for repeatable six-round HUD/result checks.
+  quickAudit: parameters.has("quickAudit"),
 });

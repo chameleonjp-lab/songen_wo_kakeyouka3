@@ -475,6 +475,7 @@ export class GameWorld {
     const theta = this.elapsed * 0.66 + this.enemies.length * 2.4 + this.random() * 0.75;
     const radius = 17.5 + this.random() * 2.4;
     const enemy = new BarbarianEnemy(this, new Vector3(Math.sin(theta) * radius, 0, Math.cos(theta) * radius), delay, variant);
+    if (this.input.isDemo && runtimeFlags.quickAudit) enemy.setHealthForAudit(1);
     this.enemies.push(enemy);
     const nextPreload = enemyCharacterKeys[this.enemyCharacterCursor] ?? null;
     if (nextPreload) void this.characters.preload(nextPreload);

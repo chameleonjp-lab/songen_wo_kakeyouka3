@@ -43,6 +43,7 @@ pointer cancel、画面離脱、visibility変更、orientation変更では押下
 | `?demo&preloadAudit` | 次敵のrequested／ready／consumedを記録 |
 | `?demo&preloadFailureAudit` | プリロード失敗から通常ロードへfallbackする経路 |
 | `?demo&adversarialAudit` | 撃破直前、幕間、怒破の境界 |
+| `?demo&quickAudit` | 各敵の体力を1に固定し、6連戦と結果画面を短時間で確認 |
 | `?demo&animationTest=1&animationTestPhase=idle` | `idle`等7フェーズを固定表示 |
 
 監査は機械的な検証用であり、demo画面の敵数や自動攻撃を正式な難易度・集団戦仕様と解釈しません。
