@@ -56,8 +56,14 @@ describe("runtime wiring source contracts", () => {
     expect(gameCanvasSource).toContain('document.removeEventListener("visibilitychange", onVisibility)');
     expect(gameCanvasSource).toContain("engine.resize(true);");
     expect(gameCanvasSource).toContain("game.recoverFromRenderError(error);");
-    expect(gameCanvasSource).toContain("if (document.hidden || contextLostRef.current) return;");
+    expect(gameCanvasSource).toContain("if (pagePaused || contextLostRef.current) return;");
     expect(gameCanvasSource).toContain("engine.runRenderLoop(renderLoop);");
+    expect(gameCanvasSource).toContain('window.addEventListener("pageshow", onPageShow)');
+    expect(gameCanvasSource).toContain('window.addEventListener("focus", onFocus)');
+    expect(gameCanvasSource).toContain('window.addEventListener("pointerdown", onUserActivity');
+    expect(sceneSource).toContain("performance.now()");
+    expect(sceneSource).toContain("engineDelta > 0.001 ? engineDelta : elapsed");
+    expect(gameWorldSource).toContain("this.challengeTimer = Math.max(0, this.challengeTimer - capped);");
     expect(sceneSource).toContain("world.recoverFromRenderError(error);");
   });
 

@@ -406,18 +406,47 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
     let handle: GameHandle | null = null;
     let disposed = false;
     let renderLoop: (() => void) | null = null;
+    // Do not read document.hidden on every frame. Safari may keep a stale
+    // hidden value while a tab is restored, which otherwise makes the first
+    // visible render loop return forever. Visibility events remain the source
+    // of truth, with pageshow/focus/user activity as safe recovery signals.
+    let pagePaused = document.visibilityState === "hidden";
     const pauseRenderLoop = () => {
       if (renderLoop) engine.stopRenderLoop(renderLoop);
     };
     const resumeRenderLoop = () => {
-      if (renderLoop && !document.hidden && !contextLostRef.current) engine.runRenderLoop(renderLoop);
+      if (renderLoop && !pagePaused && !contextLostRef.current) engine.runRenderLoop(renderLoop);
     };
     const onVisibility = () => {
-      if (document.hidden) pauseRenderLoop();
+      pagePaused = document.visibilityState === "hidden";
+      if (pagePaused) pauseRenderLoop();
       else {
-        engine.resize();
+        engine.resize(true);
         resumeRenderLoop();
       }
+    };
+    const onPageShow = () => {
+      pagePaused = false;
+      engine.resize(true);
+      resumeRenderLoop();
+    };
+    const onFocus = () => {
+      // A focus event is only delivered to the active page. Treat it as a
+      // recovery signal for Safari's missed visibilitychange transition.
+      pagePaused = false;
+      engine.resize(true);
+      resumeRenderLoop();
+    };
+    const onUserActivity = () => {
+      if (pagePaused) {
+        pagePaused = false;
+        engine.resize(true);
+        resumeRenderLoop();
+      }
+    };
+    const onPageHide = () => {
+      pagePaused = true;
+      pauseRenderLoop();
     };
     const onContextLost = (event: Event) => {
       event.preventDefault();
@@ -442,11 +471,7 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
         if (autoStart) game.start();
         if (autoStart && query.has("launchAudit")) console.info("[LaunchAudit] game started");
         renderLoop = () => {
-          // Safari can report a stale hidden state while a tab is being
-          // presented from the tab switcher. Keep the callback registered,
-          // but do no work while hidden; the next visible frame then starts
-          // the camera and countdown without requiring a missed event.
-          if (document.hidden || contextLostRef.current) return;
+          if (pagePaused || contextLostRef.current) return;
           try {
             game.scene.render();
           } catch (error) {
@@ -491,6 +516,10 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
     };
     window.addEventListener("resize", onResize);
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("pointerdown", onUserActivity, { passive: true });
     canvas.addEventListener("webglcontextlost", onContextLost, false);
     canvas.addEventListener("webglcontextrestored", onContextRestored, false);
     window.addEventListener("arena-hud", onHud);
@@ -501,6 +530,10 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
       disposed = true;
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("pointerdown", onUserActivity);
       canvas.removeEventListener("webglcontextlost", onContextLost);
       canvas.removeEventListener("webglcontextrestored", onContextRestored);
       window.removeEventListener("arena-hud", onHud);
