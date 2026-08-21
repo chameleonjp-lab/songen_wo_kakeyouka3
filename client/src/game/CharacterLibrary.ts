@@ -31,7 +31,16 @@ export function isCharacterVisualRenderable(visual: TransformNode | null) {
   const ready = meshes.some((mesh) => {
     if (mesh.isDisposed() || !mesh.isEnabled() || !mesh.isVisible || mesh.getTotalVertices() <= 0) return false;
     try {
-      return !mesh.material || mesh.material.isReady(mesh, false);
+      const material = mesh.material;
+      if (!material || !material.isReady(mesh, false)) return false;
+      // `Material.isReady` can be true while the effect is still being
+      // replaced after a context restore on Safari. Do not hide the
+      // procedural presentation until the actual effect reports ready too.
+      const effect = typeof material.getEffect === "function" ? material.getEffect() : null;
+      if (effect && typeof effect.isReady === "function" && !effect.isReady()) return false;
+      const bounds = mesh.getBoundingInfo?.();
+      const radius = bounds?.boundingSphere?.radiusWorld;
+      return radius === undefined || (Number.isFinite(radius) && radius > 0.001);
     } catch {
       return false;
     }

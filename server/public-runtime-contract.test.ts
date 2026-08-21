@@ -54,6 +54,11 @@ describe("runtime wiring source contracts", () => {
     expect(gameCanvasSource).toContain("handle?.dispose();");
     expect(gameCanvasSource).toContain("engine.dispose();");
     expect(gameCanvasSource).toContain('document.removeEventListener("visibilitychange", onVisibility)');
+    expect(gameCanvasSource).toContain("engine.resize(true);");
+    expect(gameCanvasSource).toContain("game.recoverFromRenderError(error);");
+    expect(gameCanvasSource).toContain("if (document.hidden || contextLostRef.current) return;");
+    expect(gameCanvasSource).toContain("engine.runRenderLoop(renderLoop);");
+    expect(sceneSource).toContain("world.recoverFromRenderError(error);");
   });
 
   it("keeps auto-pause and retry commands wired to the world", () => {
@@ -92,5 +97,7 @@ describe("runtime wiring source contracts", () => {
     expect(cssSource).toContain("touch-action: none");
     expect(cssSource).toContain("@media (prefers-reduced-motion: reduce)");
     expect(cssSource).toContain("@media (pointer: coarse), (max-width: 820px)");
+    expect(cssSource).toContain("Portrait is the supported phone layout");
+    expect(gameCanvasSource).toContain("orientation-landscape-label");
   });
 });

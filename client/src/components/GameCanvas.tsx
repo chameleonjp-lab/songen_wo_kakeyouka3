@@ -328,6 +328,7 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
   const lookSurfaceRef = useRef<HTMLDivElement>(null);
   const lookControllerRef = useRef(new TouchLookController());
   const contextLostRef = useRef(false);
+  const renderFailureRef = useRef(false);
   const startedRef = useRef(false);
   const [hud, setHud] = useState<HudState>(INITIAL_HUD);
   const [entryRoars, setEntryRoars] = useState<EntryRoarTrace>({});
@@ -389,6 +390,7 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
     if (!canvas || startedRef.current) return;
     startedRef.current = true;
     contextLostRef.current = false;
+    renderFailureRef.current = false;
     setContextLost(false);
     setSceneError("");
     const isCoarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
@@ -397,6 +399,10 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
     const devicePixelRatio = Math.min(window.devicePixelRatio || 1, maxDevicePixelRatio);
     const engine = new Engine(canvas, true, { preserveDrawingBuffer: false, stencil: true, adaptToDeviceRatio: false });
     engine.setHardwareScalingLevel(1 / devicePixelRatio);
+    // The canvas is absolutely positioned and its CSS size is established by
+    // the first layout pass. Resize once before the first render so Safari
+    // does not start with the default 300×150 drawing buffer.
+    engine.resize(true);
     let handle: GameHandle | null = null;
     let disposed = false;
     let renderLoop: (() => void) | null = null;
@@ -432,10 +438,29 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
           return;
         }
         handle = game;
+        engine.resize(true);
         if (autoStart) game.start();
         if (autoStart && query.has("launchAudit")) console.info("[LaunchAudit] game started");
-        renderLoop = () => game.scene.render();
-        if (!document.hidden) engine.runRenderLoop(renderLoop);
+        renderLoop = () => {
+          // Safari can report a stale hidden state while a tab is being
+          // presented from the tab switcher. Keep the callback registered,
+          // but do no work while hidden; the next visible frame then starts
+          // the camera and countdown without requiring a missed event.
+          if (document.hidden || contextLostRef.current) return;
+          try {
+            game.scene.render();
+          } catch (error) {
+            if (!renderFailureRef.current) {
+              renderFailureRef.current = true;
+              game.recoverFromRenderError(error);
+              console.warn("Arena render failed; continuing with procedural fighter presentation", error);
+            }
+          }
+        };
+        // Register even when the first callback happens during a hidden
+        // transition. The callback guard above makes this safe and avoids a
+        // permanently frozen first frame if visibilitychange was missed.
+        engine.runRenderLoop(renderLoop);
       })
       .catch((error) => {
         if (disposed) return;
@@ -457,6 +482,13 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
       if (assetNoticeTimerRef.current !== null) window.clearTimeout(assetNoticeTimerRef.current);
       assetNoticeTimerRef.current = window.setTimeout(() => setAssetNotice(""), 4200);
     };
+    const onRenderRecovered = (event: Event) => {
+      const message = (event as CustomEvent<{ message?: string }>).detail?.message;
+      if (!message) return;
+      setAssetNotice(message);
+      if (assetNoticeTimerRef.current !== null) window.clearTimeout(assetNoticeTimerRef.current);
+      assetNoticeTimerRef.current = window.setTimeout(() => setAssetNotice(""), 4200);
+    };
     window.addEventListener("resize", onResize);
     document.addEventListener("visibilitychange", onVisibility);
     canvas.addEventListener("webglcontextlost", onContextLost, false);
@@ -464,6 +496,7 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
     window.addEventListener("arena-hud", onHud);
     window.addEventListener("arena-entry-roar", onEntryRoar);
     window.addEventListener("arena-asset-error", onAssetError);
+    window.addEventListener("arena-render-recovered", onRenderRecovered);
     return () => {
       disposed = true;
       window.removeEventListener("resize", onResize);
@@ -473,6 +506,7 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
       window.removeEventListener("arena-hud", onHud);
       window.removeEventListener("arena-entry-roar", onEntryRoar);
       window.removeEventListener("arena-asset-error", onAssetError);
+      window.removeEventListener("arena-render-recovered", onRenderRecovered);
       if (assetNoticeTimerRef.current !== null) window.clearTimeout(assetNoticeTimerRef.current);
       pauseRenderLoop();
       handle?.dispose();
@@ -678,7 +712,10 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
       )}
 
       {hud.started && !hud.paused && !hud.result && (
-        <aside className="orientation-hint" aria-label="画面向きの案内">横画面推奨</aside>
+        <aside className="orientation-hint" aria-label="画面向きの案内">
+          <span className="orientation-portrait-label">縦画面でプレイ中</span>
+          <span className="orientation-landscape-label">縦画面に戻してください</span>
+        </aside>
       )}
 
       {!hud.started && !isDemo && !autoStart && !hud.result && (
