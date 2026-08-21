@@ -371,6 +371,11 @@ export class GameWorld {
     }
 
     const combatFrozen = this.challengeTimer > 0;
+    // Advance the opening/intermission timer before character callbacks. If a
+    // mobile material or animation callback throws, the scene-level recovery
+    // path can still publish a newer countdown instead of leaving the HUD at
+    // the preload value forever.
+    this.challengeTimer = Math.max(0, this.challengeTimer - capped);
     const roundActive = !combatFrozen && this.enemies.some((enemy) => !enemy.removed && enemy.mode !== "dead" && enemy.mode !== "spawn");
     this.session.tick(capped, roundActive);
     this.noticeTime = Math.max(0, this.noticeTime - capped);
@@ -383,7 +388,6 @@ export class GameWorld {
     }
     const rageReady = this.player.rage >= 100;
     this.enemies.forEach((enemy) => enemy.setRageOutline(rageReady));
-    this.challengeTimer = Math.max(0, this.challengeTimer - capped);
     for (const enemy of [...this.enemies]) enemy.update(capped, combatFrozen);
     this.effects.forEach((effect) => effect.update(capped));
     for (let index = this.effects.length - 1; index >= 0; index -= 1) {
@@ -629,7 +633,12 @@ export class GameWorld {
    * apparently empty arena behind.
    */
   recoverFromRenderError(error: unknown) {
-    if (this.proceduralFallbackActive) return;
+    if (this.proceduralFallbackActive) {
+      // Keep the HUD's countdown authoritative even if a non-visual callback
+      // continues to throw after the first recovery attempt.
+      this.emitHud(1);
+      return;
+    }
     this.proceduralFallbackActive = true;
     console.warn("Arena render recovered with procedural fighter presentation", error);
     this.player.forceProceduralFallback();
@@ -640,6 +649,7 @@ export class GameWorld {
         detail: { mode: "procedural", message: "3D表示を簡易表示へ切り替えました" },
       }));
     }
+    this.emitHud(1);
   }
 
   private runMouseLookAudit() {
