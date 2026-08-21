@@ -179,6 +179,7 @@ body { -webkit-tap-highlight-color: transparent; }
 .status-pill { min-width: min(360px, 30vw); }
 .status-pill small { color: #c3a477; font-family: Oswald, sans-serif; font-size: 9px; letter-spacing: .12em; }
 .orientation-hint { position: absolute; z-index: 11; left: 50%; bottom: max(85px, calc(85px + var(--arena-safe-bottom))); display: none; transform: translateX(-50%); color: rgba(238, 208, 162, .7); font-family: Oswald, sans-serif; font-size: 9px; letter-spacing: .2em; pointer-events: none; }
+.orientation-landscape-label { display: none; }
 
 /* The camera gesture deliberately occupies unused centre/right space. */
 .touch-camera-surface { display: none; position: absolute; z-index: 5; inset: var(--arena-safe-top) 0 calc(128px + var(--arena-safe-bottom)) 24%; pointer-events: none; touch-action: none; user-select: none; -webkit-user-select: none; }
@@ -266,6 +267,15 @@ body { -webkit-tap-highlight-color: transparent; }
   .hud-bottom { bottom: calc(112px + var(--arena-safe-bottom)); }
   .touch-camera-surface { inset: calc(50px + var(--arena-safe-top)) 0 calc(112px + var(--arena-safe-bottom)) 24%; }
   .touch-dpad button { min-width: 40px; min-height: 40px; }
+}
+
+/* Portrait is the supported phone layout. Landscape remains readable, but
+   tells the player to rotate back instead of implying that the controls are
+   the primary experience there. */
+@media (pointer: coarse) and (orientation: landscape), (max-width: 820px) and (orientation: landscape) {
+  .orientation-portrait-label { display: none; }
+  .orientation-landscape-label { display: inline; }
+  .orientation-hint { display: block; bottom: max(20px, calc(20px + var(--arena-safe-bottom))); padding: 6px 10px; background: rgba(8, 7, 6, .66); border: 1px solid rgba(218, 157, 73, .3); }
 }
 
 @media (max-width: 680px) {

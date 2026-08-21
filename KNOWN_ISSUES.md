@@ -6,10 +6,10 @@
 
 | 状態 | 内容 | 次の確認 |
 |---|---|---|
-| CI確認済み・実機検証待ち | GitHub Actions run #21（main commit `4a0eb0a`）は成功。型検査、Vitest、本番build、GLB監査、静的出力検証を同一commitで通過 | Pages／実機での画面・Network再確認 |
-| PagesのSource未切替 | Deploy to GitHub Pages run #3（main commit `4a0eb0a`）はPages API preflightのHTTP 404で停止。一方、標準の `pages build and deployment` run #1はJekyll buildとして成功し、公開URLはHTTP 200だがゲームではなくREADME由来のJekyllページを返している。HTTP 200だけではゲーム公開を確認できない | Repository Settings → Pages → Build and deployment → Source を **GitHub Actions** に変更してから `Deploy to GitHub Pages` を再実行 |
-| 検証待ち | GitHub Pagesの実プロジェクトサブパスで遅延chunk、画像、GLB、faviconを確認していない | Pages有効化後に公開URLでhard reloadとNetworkを確認 |
-| 検証待ち | iPhone Safariで6戦の起動・タッチ・音声・復帰を最終確認していない | [IPHONE.md](IPHONE.md) の手順を実機で実行 |
+| CI／Pages確認済み・実機検証待ち | main commit `2d245cb` のCI run #31とPages deploy run #6は成功。公開URLへ静的ゲームを配信済み | Pages／実機での画面・Network再確認 |
+| 修正済み・再デプロイ後の画面確認待ち | iPhone Safariの報告ではHUDと開始待機は表示されるが、キャラクターが見えず、開始待機が3.0秒付近で止まる場合がある。描画例外時の更新継続、エンジンresize、手続き表示への復旧を今回追加 | このブランチのDraft PRをPagesへデプロイし、縦画面で再確認 |
+| 検証待ち | GitHub Pagesの実プロジェクトサブパスで遅延chunk、画像、GLB、faviconを確認していない | 公開URLでhard reloadとNetworkを確認 |
+| 検証待ち | iPhone Safariで6戦の起動・タッチ・音声・復帰を最終確認していない | [IPHONE.md](IPHONE.md) の縦画面手順を実機で実行 |
 | 修正済み・画面再確認待ち | ランチャー／ゲーム開始文言を旧集団戦から6戦1対1へ更新した | `SIX CONSECUTIVE DUELS` と6体表記を実機で再確認 |
 | 要確認 | Nodeサーバー経路は静的ゲームの既定起動から分離済みだが、今回のブラウザ確認対象外 | Nodeサーバーを使う環境で `pnpm build:server && pnpm start:server` を確認 |
 
