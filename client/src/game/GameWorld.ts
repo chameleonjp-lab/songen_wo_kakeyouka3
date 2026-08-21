@@ -24,7 +24,7 @@ import { CombatAudio } from "@/game/CombatAudio";
 import { createEntryRoarTelemetry } from "@/game/EntryRoarTelemetry";
 import { isAttackClashWindow } from "@/game/CombatClash";
 import { Haptics } from "@/game/Haptics";
-import { applyLockCameraLook } from "@/game/CameraRig";
+import { applyLockCameraLook, lockCameraRadius } from "@/game/CameraRig";
 import { fixedThirdPersonRig } from "@/game/FixedThirdPersonCamera";
 import { advanceRoundSpawn } from "@/game/RoundFlow";
 import { selectAttackMove, ENEMY_ATTACK_SETS, ATTACK_BY_NAME, type AttackMove } from "@/game/AttackCatalog";
@@ -424,7 +424,8 @@ export class GameWorld {
       const enemyFocus = this.lockTarget.root.position.add(new Vector3(0, 1.25, 0));
       const lockFocus = Vector3.Lerp(focus, enemyFocus, 0.35);
       const fighterDistance = Vector3.Distance(this.player.root.position, this.lockTarget.root.position);
-      const desiredRadius = clamp(8.8 + fighterDistance * 0.28, 9.2, 14.5);
+      const aspect = this.scene.getEngine().getRenderWidth() / Math.max(1, this.scene.getEngine().getRenderHeight());
+      const desiredRadius = lockCameraRadius(fighterDistance, aspect);
       this.camera.target = Vector3.Lerp(this.camera.target, lockFocus, clamp(delta * 10, 0, 1));
       this.camera.radius += (desiredRadius - this.camera.radius) * clamp(delta * 8, 0, 1);
       this.camera.alpha = lerpAngle(this.camera.alpha, rig.alpha + this.cameraOrbitOffset, clamp(delta * 10, 0, 1));

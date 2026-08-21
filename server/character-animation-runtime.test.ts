@@ -50,6 +50,7 @@ describe("character animation runtime", () => {
     const compilingMesh = { ...readyMesh, material: { isReady: () => false } };
     const visual = (mesh: unknown) => ({
       isDisposed: () => false,
+      isEnabled: () => true,
       getChildMeshes: () => [mesh],
     }) as never;
 

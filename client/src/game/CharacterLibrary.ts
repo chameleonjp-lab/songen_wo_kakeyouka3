@@ -12,6 +12,8 @@ export type CharacterMotion = "idle" | "move" | "guard" | "light" | "heavy" | "c
 
 export const ROOT_MOTION_POLICY = "code-authoritative-in-place" as const;
 
+const visualReadinessCache = new WeakMap<TransformNode, { frameId: number; ready: boolean }>();
+
 /**
  * A loaded GLB is not necessarily drawable yet.  In particular, a skeletal
  * mesh can exist while its material/effect is still compiling on the first
@@ -20,8 +22,13 @@ export const ROOT_MOTION_POLICY = "code-authoritative-in-place" as const;
  */
 export function isCharacterVisualRenderable(visual: TransformNode | null) {
   if (!visual || visual.isDisposed()) return false;
+  if (!visual.isEnabled()) return false;
+  const scene = typeof (visual as TransformNode & { getScene?: unknown }).getScene === "function" ? visual.getScene() : null;
+  const frameId = scene?.getFrameId() ?? -1;
+  const cached = visualReadinessCache.get(visual);
+  if (cached?.frameId === frameId) return cached.ready;
   const meshes = visual.getChildMeshes(false);
-  return meshes.some((mesh) => {
+  const ready = meshes.some((mesh) => {
     if (mesh.isDisposed() || !mesh.isEnabled() || !mesh.isVisible || mesh.getTotalVertices() <= 0) return false;
     try {
       return !mesh.material || mesh.material.isReady(mesh, false);
@@ -29,6 +36,8 @@ export function isCharacterVisualRenderable(visual: TransformNode | null) {
       return false;
     }
   });
+  if (scene) visualReadinessCache.set(visual, { frameId, ready });
+  return ready;
 }
 
 function cloneAnimationValue<T>(value: T): T {
