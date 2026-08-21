@@ -18,7 +18,7 @@ import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { Scene } from "@babylonjs/core/scene";
 import { arenaAssets, enemyCharacterKeys, type EnemyCharacterKey } from "@/game/assets";
-import { CharacterAnimator, CharacterLibrary, type CharacterMotion } from "@/game/CharacterLibrary";
+import { CharacterAnimator, CharacterLibrary, isCharacterVisualRenderable, type CharacterMotion } from "@/game/CharacterLibrary";
 import { InputManager } from "@/game/InputManager";
 import { CombatAudio } from "@/game/CombatAudio";
 import { createEntryRoarTelemetry } from "@/game/EntryRoarTelemetry";
@@ -369,11 +369,12 @@ export class GameWorld {
       return;
     }
 
-    const roundActive = this.enemies.some((enemy) => !enemy.removed && enemy.mode !== "dead" && enemy.mode !== "spawn");
+    const combatFrozen = this.challengeTimer > 0;
+    const roundActive = !combatFrozen && this.enemies.some((enemy) => !enemy.removed && enemy.mode !== "dead" && enemy.mode !== "spawn");
     this.session.tick(capped, roundActive);
     this.noticeTime = Math.max(0, this.noticeTime - capped);
     if (this.noticeTime <= 0) this.notice = "";
-    this.player.update(capped);
+    if (!combatFrozen) this.player.update(capped);
     if (this.player.mode === "fallen") {
       this.finishRun("defeat");
       this.emitHud(1);
@@ -382,7 +383,7 @@ export class GameWorld {
     const rageReady = this.player.rage >= 100;
     this.enemies.forEach((enemy) => enemy.setRageOutline(rageReady));
     this.challengeTimer = Math.max(0, this.challengeTimer - capped);
-    for (const enemy of [...this.enemies]) enemy.update(capped);
+    for (const enemy of [...this.enemies]) enemy.update(capped, combatFrozen);
     this.effects.forEach((effect) => effect.update(capped));
     for (let index = this.effects.length - 1; index >= 0; index -= 1) {
       if (this.effects[index].done) {
@@ -447,7 +448,7 @@ export class GameWorld {
   }
 
   private updateLockTarget() {
-    const candidate = this.enemies.find((enemy) => !enemy.removed && enemy.mode !== "dead" && enemy.mode !== "spawn") ?? null;
+    const candidate = this.enemies.find((enemy) => !enemy.removed && enemy.mode !== "dead" && (enemy.mode !== "spawn" || this.challengeTimer > 0)) ?? null;
     if (candidate === this.lockTarget) return;
     this.lockTarget = candidate;
     if (this.input.isDemo && runtimeFlags.lockAudit) {
@@ -469,17 +470,22 @@ export class GameWorld {
     return variant;
   }
 
-  spawnEnemy(delay = 0) {
+  spawnEnemy(delay = 0, preserveChallenge = false, openingPreview = false) {
     const variant = this.nextEnemyCharacter();
     if (!variant) return;
-    const theta = this.elapsed * 0.66 + this.enemies.length * 2.4 + this.random() * 0.75;
-    const radius = 17.5 + this.random() * 2.4;
+    // The opening challenger is placed in front of the goose so the first
+    // portrait frame cannot put the only opponent behind the camera. Later
+    // rounds retain the varied entry angles used by the combat design.
+    const theta = openingPreview
+      ? Math.PI + (this.random() - 0.5) * 0.3
+      : this.elapsed * 0.66 + this.enemies.length * 2.4 + this.random() * 0.75;
+    const radius = openingPreview ? 5.2 + this.random() * 0.7 : 17.5 + this.random() * 2.4;
     const enemy = new BarbarianEnemy(this, new Vector3(Math.sin(theta) * radius, 0, Math.cos(theta) * radius), delay, variant);
     if (this.input.isDemo && runtimeFlags.quickAudit) enemy.setHealthForAudit(1);
     this.enemies.push(enemy);
     const nextPreload = enemyCharacterKeys[this.enemyCharacterCursor] ?? null;
     if (nextPreload) void this.characters.preload(nextPreload);
-    this.challengeTimer = 0;
+    if (!preserveChallenge) this.challengeTimer = 0;
     if (this.input.isDemo && runtimeFlags.adversarialAudit) {
       console.info("[AdversarialAudit] challengeVisible=false spawned=%s", enemy.variant);
     }
@@ -582,7 +588,11 @@ export class GameWorld {
     const initialVariant = enemyCharacterKeys[this.enemyCharacterCursor] ?? enemyCharacterKeys[0];
     this.challenger = challengerNames[initialVariant];
     this.taunt = enemyPresentations[initialVariant].taunt;
+    // Create the first challenger before the countdown finishes so both
+    // fighters are present in the scene. Combat remains frozen until the
+    // banner reaches zero, while the camera can already frame the challenger.
     if (this.input.isDemo) this.spawnEnemy(-1);
+    else this.spawnEnemy(0, true, true);
   }
 
   movementDirection(move: Vector2) {
@@ -1218,7 +1228,8 @@ class Player {
       this.playCharacterMotion(motion, motion === "idle" || motion === "move" || motion === "guard");
     } else {
       this.characterVisual?.setEnabled(Boolean(this.characterAnimator));
-      this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !this.characterAnimator; });
+      const visualReady = Boolean(this.characterAnimator && isCharacterVisualRenderable(this.characterVisual));
+      this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !visualReady; });
     }
   }
 
@@ -1230,7 +1241,8 @@ class Player {
   private playCharacterMotion(motion: CharacterMotion, loop = false, speedRatio = 1) {
     const played = this.characterAnimator ? this.characterAnimator.play(motion, loop, speedRatio) : false;
     this.characterVisual?.setEnabled(Boolean(this.characterAnimator && played));
-    this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !this.characterAnimator || !played; });
+    const visualReady = Boolean(this.characterAnimator && played && isCharacterVisualRenderable(this.characterVisual));
+    this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !visualReady; });
   }
 
   private updateAnimationTest(delta: number) {
@@ -1754,12 +1766,16 @@ class BarbarianEnemy {
     });
   }
 
-  update(delta: number) {
+  update(delta: number, combatFrozen = false) {
     this.actionClock += delta;
     this.heartOpenTime = Math.max(0, this.heartOpenTime - delta);
     this.updateHeartCue();
     if (runtimeFlags.animationTest) {
       this.updateAnimationTest(delta);
+      return;
+    }
+    if (combatFrozen && this.mode !== "dead") {
+      this.updateFrozenPreview(delta);
       return;
     }
     if (this.characterVisual) {
@@ -1936,6 +1952,34 @@ class BarbarianEnemy {
     }
   }
 
+  private updateFrozenPreview(delta: number) {
+    this.warningRing.isVisible = false;
+    if (this.mode === "spawn") {
+      this.entryPoseClock += delta;
+      if (!this.entrySoundPlayed && (this.world.isStarted() || this.world.input.isDemo)) {
+        this.entrySoundPlayed = true;
+        const pan = this.world.entryPanFor(this.root.position);
+        this.world.audio.playEnemyEntry(this.variant, this.presentation.roarIntensity, pan);
+        this.world.recordEnemyEntryRoar(this.variant, pan);
+      }
+      // Keep the challenger at a readable size during the countdown. The
+      // actual approach/combat motion starts only after the banner disappears.
+      this.playCharacterMotion("idle", true);
+      this.root.scaling.setAll(this.baseScale);
+      this.root.rotation.z = Math.sin(this.entryPoseClock * 2.4) * this.presentation.entryLean * 0.45;
+      this.weaponPivot.rotation.z = this.presentation.entryLean * 1.8;
+      this.timer -= delta;
+      if (this.timer <= 0) {
+        this.mode = "approach";
+        this.root.rotation.z = 0;
+        this.weaponPivot.rotation.z = 0;
+      }
+      return;
+    }
+    this.playCharacterMotion("idle", true);
+    this.root.rotation.z = lerpAngle(this.root.rotation.z, 0, clamp(delta * 8, 0, 1));
+  }
+
   private updateHeartCue() {
     for (const mesh of this.heartMeshes) {
       if (mesh.isDisposed()) continue;
@@ -2016,7 +2060,8 @@ class BarbarianEnemy {
       : false;
     if (!played) this.playCharacterMotion("heavy", false, speedRatio);
     this.characterVisual?.setEnabled(Boolean(this.characterAnimator));
-    this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !this.characterAnimator; });
+    const visualReady = Boolean(this.characterAnimator && isCharacterVisualRenderable(this.characterVisual));
+    this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !visualReady; });
   }
 
   private attackRange() {
@@ -2235,7 +2280,8 @@ class BarbarianEnemy {
   private playCharacterMotion(motion: CharacterMotion, loop = false, speedRatio = 1) {
     const played = this.characterAnimator ? this.characterAnimator.play(motion, loop, speedRatio) : false;
     this.characterVisual?.setEnabled(Boolean(this.characterAnimator && played));
-    this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !this.characterAnimator || !played; });
+    const visualReady = Boolean(this.characterAnimator && played && isCharacterVisualRenderable(this.characterVisual));
+    this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !visualReady; });
   }
 
   get requiresJustGuard() {
