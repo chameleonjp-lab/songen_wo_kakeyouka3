@@ -178,6 +178,7 @@ export class GameWorld {
   private screenShakeScale = 1;
   private randomState = 0x51f15e;
   private disposed = false;
+  private proceduralFallbackActive = false;
   private readonly auditTimers: number[] = [];
   private readonly effectPool = new Map<CombatEffectKind, CombatEffect[]>();
   private readonly onCommand = (event: Event) => {
@@ -621,6 +622,26 @@ export class GameWorld {
     this.noticeTime = seconds;
   }
 
+  /**
+   * A mobile WebGL driver can fail while compiling a loaded GLB effect. Keep
+   * the simulation and countdown alive, but make the already-created
+   * procedural fighters authoritative for this run instead of leaving an
+   * apparently empty arena behind.
+   */
+  recoverFromRenderError(error: unknown) {
+    if (this.proceduralFallbackActive) return;
+    this.proceduralFallbackActive = true;
+    console.warn("Arena render recovered with procedural fighter presentation", error);
+    this.player.forceProceduralFallback();
+    this.enemies.forEach((enemy) => enemy.forceProceduralFallback());
+    this.notify("3D表示を簡易表示へ切り替えました", 2.4);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("arena-render-recovered", {
+        detail: { mode: "procedural", message: "3D表示を簡易表示へ切り替えました" },
+      }));
+    }
+  }
+
   private runMouseLookAudit() {
     console.info("[LockAudit] mouse look input begin dx=180 dy=-160");
     window.dispatchEvent(new CustomEvent("arena-mouse-look-audit", { detail: { dx: 180, dy: -160 } }));
@@ -1027,6 +1048,7 @@ class Player {
   private attackSequence = 0;
   private poopTransformed = false;
   private dustClock = 0;
+  private proceduralFallback = false;
 
   constructor(private readonly world: GameWorld, position: Vector3) {
     this.root = new TransformNode("blockyPlayer", world.scene);
@@ -1228,9 +1250,14 @@ class Player {
       const motion: CharacterMotion = this.mode === "guard" ? "guard" : this.mode === "dodge" || this.mode === "move" ? "move" : "idle";
       this.playCharacterMotion(motion, motion === "idle" || motion === "move" || motion === "guard");
     } else {
-      this.characterVisual?.setEnabled(Boolean(this.characterAnimator));
-      const visualReady = Boolean(this.characterAnimator && isCharacterVisualRenderable(this.characterVisual));
-      this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !visualReady; });
+      if (this.proceduralFallback) {
+        this.characterVisual?.setEnabled(false);
+        this.fallbackMeshes.forEach((mesh) => { mesh.setEnabled(true); mesh.isVisible = true; });
+      } else {
+        this.characterVisual?.setEnabled(Boolean(this.characterAnimator));
+        const visualReady = Boolean(this.characterAnimator && isCharacterVisualRenderable(this.characterVisual));
+        this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !visualReady; });
+      }
     }
   }
 
@@ -1240,10 +1267,26 @@ class Player {
   }
 
   private playCharacterMotion(motion: CharacterMotion, loop = false, speedRatio = 1) {
+    if (this.proceduralFallback) {
+      this.characterVisual?.setEnabled(false);
+      this.fallbackMeshes.forEach((mesh) => { mesh.setEnabled(true); mesh.isVisible = true; });
+      return;
+    }
     const played = this.characterAnimator ? this.characterAnimator.play(motion, loop, speedRatio) : false;
     this.characterVisual?.setEnabled(Boolean(this.characterAnimator && played));
     const visualReady = Boolean(this.characterAnimator && played && isCharacterVisualRenderable(this.characterVisual));
     this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !visualReady; });
+  }
+
+  forceProceduralFallback() {
+    this.proceduralFallback = true;
+    // Remove imported animation groups and their instance from the render
+    // list as well as disabling them. This matters when the failed shader or
+    // skinning path is what caused the mobile render exception.
+    this.characterAnimator?.dispose();
+    this.characterAnimator = null;
+    this.characterVisual = null;
+    this.fallbackMeshes.forEach((mesh) => { mesh.setEnabled(true); mesh.isVisible = true; });
   }
 
   private updateAnimationTest(delta: number) {
@@ -1619,6 +1662,7 @@ class BarbarianEnemy {
   private chargeDirection = Vector3.Zero();
   private chargeTrailClock = 0;
   private feintUsed = false;
+  private proceduralFallback = false;
   private readonly heartMeshes: Mesh[] = [];
   private readonly hitMeshes: Record<HitLocation, Mesh[]> = { head: [], torso: [], heart: [] };
 
@@ -2056,6 +2100,11 @@ class BarbarianEnemy {
   }
 
   private playCurrentAttack(restart: boolean, speedRatio = 1) {
+    if (this.proceduralFallback) {
+      this.characterVisual?.setEnabled(false);
+      this.fallbackMeshes.forEach((mesh) => { mesh.setEnabled(true); mesh.isVisible = true; });
+      return;
+    }
     const played = this.currentAttackMove
       ? this.characterAnimator?.playNamed(this.currentAttackMove.name, false, speedRatio, restart) ?? false
       : false;
@@ -2279,10 +2328,23 @@ class BarbarianEnemy {
   }
 
   private playCharacterMotion(motion: CharacterMotion, loop = false, speedRatio = 1) {
+    if (this.proceduralFallback) {
+      this.characterVisual?.setEnabled(false);
+      this.fallbackMeshes.forEach((mesh) => { mesh.setEnabled(true); mesh.isVisible = true; });
+      return;
+    }
     const played = this.characterAnimator ? this.characterAnimator.play(motion, loop, speedRatio) : false;
     this.characterVisual?.setEnabled(Boolean(this.characterAnimator && played));
     const visualReady = Boolean(this.characterAnimator && played && isCharacterVisualRenderable(this.characterVisual));
     this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !visualReady; });
+  }
+
+  forceProceduralFallback() {
+    this.proceduralFallback = true;
+    this.characterAnimator?.dispose();
+    this.characterAnimator = null;
+    this.characterVisual = null;
+    this.fallbackMeshes.forEach((mesh) => { mesh.setEnabled(true); mesh.isVisible = true; });
   }
 
   get requiresJustGuard() {

@@ -59,6 +59,24 @@ describe("character animation runtime", () => {
     expect(isCharacterVisualRenderable(null)).toBe(false);
   });
 
+  it("does not hide the fallback while the material effect is still compiling", () => {
+    const compilingEffectMesh = {
+      isDisposed: () => false,
+      isEnabled: () => true,
+      isVisible: true,
+      getTotalVertices: () => 24,
+      getBoundingInfo: () => ({ boundingSphere: { radiusWorld: 1 } }),
+      material: { isReady: () => true, getEffect: () => ({ isReady: () => false }) },
+    };
+    const visual = {
+      isDisposed: () => false,
+      isEnabled: () => true,
+      getChildMeshes: () => [compilingEffectMesh],
+    } as never;
+
+    expect(isCharacterVisualRenderable(visual)).toBe(false);
+  });
+
   it("declares code-authoritative in-place root motion", () => {
     expect(ROOT_MOTION_POLICY).toBe("code-authoritative-in-place");
   });
