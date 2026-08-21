@@ -12,6 +12,34 @@ export type CharacterMotion = "idle" | "move" | "guard" | "light" | "heavy" | "c
 
 export const ROOT_MOTION_POLICY = "code-authoritative-in-place" as const;
 
+const visualReadinessCache = new WeakMap<TransformNode, { frameId: number; ready: boolean }>();
+
+/**
+ * A loaded GLB is not necessarily drawable yet.  In particular, a skeletal
+ * mesh can exist while its material/effect is still compiling on the first
+ * frame.  Callers keep the procedural presentation visible until at least one
+ * real character mesh has geometry, is enabled, and reports a ready material.
+ */
+export function isCharacterVisualRenderable(visual: TransformNode | null) {
+  if (!visual || visual.isDisposed()) return false;
+  if (!visual.isEnabled()) return false;
+  const scene = typeof (visual as TransformNode & { getScene?: unknown }).getScene === "function" ? visual.getScene() : null;
+  const frameId = scene?.getFrameId() ?? -1;
+  const cached = visualReadinessCache.get(visual);
+  if (cached?.frameId === frameId) return cached.ready;
+  const meshes = visual.getChildMeshes(false);
+  const ready = meshes.some((mesh) => {
+    if (mesh.isDisposed() || !mesh.isEnabled() || !mesh.isVisible || mesh.getTotalVertices() <= 0) return false;
+    try {
+      return !mesh.material || mesh.material.isReady(mesh, false);
+    } catch {
+      return false;
+    }
+  });
+  if (scene) visualReadinessCache.set(visual, { frameId, ready });
+  return ready;
+}
+
 function cloneAnimationValue<T>(value: T): T {
   if (value && typeof value === "object" && "clone" in value && typeof value.clone === "function") {
     return value.clone() as T;
@@ -276,6 +304,9 @@ export class CharacterLibrary {
     instance.getChildMeshes(false).forEach((mesh) => {
       mesh.isVisible = true;
       mesh.receiveShadows = true;
+      // Prefer the bone texture path on mobile/WebGL where the uniform path
+      // can exceed the vertex-uniform limit and silently drop a skinned mesh.
+      if (mesh.skeleton) mesh.skeleton.useTextureToStoreBoneMatrices = true;
       mesh.material?.getActiveTextures().forEach((texture) => {
         texture.anisotropicFilteringLevel = this.textureAnisotropy;
       });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { CharacterAnimator, ROOT_MOTION_POLICY } from "../client/src/game/CharacterLibrary";
+import { CharacterAnimator, isCharacterVisualRenderable, ROOT_MOTION_POLICY } from "../client/src/game/CharacterLibrary";
 
 type FakeGroup = {
   name: string;
@@ -39,6 +39,26 @@ function fakeGroup(name: string, targetName = "Root_CTRL"): FakeGroup {
 }
 
 describe("character animation runtime", () => {
+  it("keeps the procedural presentation until a loaded visual is drawable", () => {
+    const readyMesh = {
+      isDisposed: () => false,
+      isEnabled: () => true,
+      isVisible: true,
+      getTotalVertices: () => 24,
+      material: { isReady: () => true },
+    };
+    const compilingMesh = { ...readyMesh, material: { isReady: () => false } };
+    const visual = (mesh: unknown) => ({
+      isDisposed: () => false,
+      isEnabled: () => true,
+      getChildMeshes: () => [mesh],
+    }) as never;
+
+    expect(isCharacterVisualRenderable(visual(readyMesh))).toBe(true);
+    expect(isCharacterVisualRenderable(visual(compilingMesh))).toBe(false);
+    expect(isCharacterVisualRenderable(null)).toBe(false);
+  });
+
   it("declares code-authoritative in-place root motion", () => {
     expect(ROOT_MOTION_POLICY).toBe("code-authoritative-in-place");
   });
