@@ -56,6 +56,8 @@ describe("runtime wiring source contracts", () => {
     expect(gameCanvasSource).toContain('document.removeEventListener("visibilitychange", onVisibility)');
     expect(gameCanvasSource).toContain("engine.resize(true);");
     expect(gameCanvasSource).toContain("game.recoverFromRenderError(error);");
+    expect(gameCanvasSource).toContain("if (document.hidden || contextLostRef.current) return;");
+    expect(gameCanvasSource).toContain("engine.runRenderLoop(renderLoop);");
     expect(sceneSource).toContain("world.recoverFromRenderError(error);");
   });
 

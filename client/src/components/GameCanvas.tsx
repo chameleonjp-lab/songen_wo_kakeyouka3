@@ -442,6 +442,11 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
         if (autoStart) game.start();
         if (autoStart && query.has("launchAudit")) console.info("[LaunchAudit] game started");
         renderLoop = () => {
+          // Safari can report a stale hidden state while a tab is being
+          // presented from the tab switcher. Keep the callback registered,
+          // but do no work while hidden; the next visible frame then starts
+          // the camera and countdown without requiring a missed event.
+          if (document.hidden || contextLostRef.current) return;
           try {
             game.scene.render();
           } catch (error) {
@@ -452,7 +457,10 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
             }
           }
         };
-        if (!document.hidden) engine.runRenderLoop(renderLoop);
+        // Register even when the first callback happens during a hidden
+        // transition. The callback guard above makes this safe and avoids a
+        // permanently frozen first frame if visibilitychange was missed.
+        engine.runRenderLoop(renderLoop);
       })
       .catch((error) => {
         if (disposed) return;
