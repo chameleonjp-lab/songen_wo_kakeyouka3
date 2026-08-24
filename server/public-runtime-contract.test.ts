@@ -37,6 +37,13 @@ describe("public asset registry", () => {
     expect(enemyCharacterKeys).not.toContain("goose");
     expect(enemyCharacterKeys).not.toContain("poop");
   });
+
+  it("does not ship the development debug collector as a public asset", () => {
+    expect(existsSync(new URL("../client/public/__manus__/debug-collector.js", import.meta.url))).toBe(false);
+    const packageSource = readFileSync(new URL("../package.json", import.meta.url), "utf8");
+    expect(packageSource).not.toContain("vite-plugin-manus-runtime");
+    expect(packageSource).not.toContain("vite-plugin-jsx-loc");
+  });
 });
 
 describe("runtime wiring source contracts", () => {
@@ -46,30 +53,35 @@ describe("runtime wiring source contracts", () => {
   const cssSource = readFileSync(new URL("../client/src/index.css", import.meta.url), "utf8");
 
   it("keeps the scene and canvas lifecycle paired", () => {
-    expect(sceneSource).toContain("world.dispose();");
-    expect(sceneSource).toContain("scene.dispose();");
+    expect(sceneSource).toContain("safeRun(() => world.dispose())");
+    expect(sceneSource).toContain("safeRun(() => scene.dispose())");
     expect(gameCanvasSource).toContain('document.addEventListener("visibilitychange", onVisibility)');
     expect(gameCanvasSource).toContain('canvas.addEventListener("webglcontextlost", onContextLost, false)');
     expect(gameCanvasSource).toContain('canvas.addEventListener("webglcontextrestored", onContextRestored, false)');
-    expect(gameCanvasSource).toContain("handle?.dispose();");
-    expect(gameCanvasSource).toContain("engine.dispose();");
+    expect(gameCanvasSource).toContain("contextRecoveryPending && contextRestoredDuringInitialization");
+    expect(gameCanvasSource).toContain("safeRun(() => handle?.dispose())");
+    expect(gameCanvasSource).toContain("safeRun(() => engine.dispose())");
     expect(gameCanvasSource).toContain('document.removeEventListener("visibilitychange", onVisibility)');
     expect(gameCanvasSource).toContain("engine.resize(true);");
-    expect(gameCanvasSource).toContain("game.recoverFromRenderError(error);");
+    expect(gameCanvasSource).toContain("safeRun(() => game.recoverFromRenderError(error)");
     expect(gameCanvasSource).toContain("if (pagePaused || contextLostRef.current) return;");
-    expect(gameCanvasSource).toContain("engine.runRenderLoop(renderLoop);");
+    expect(gameCanvasSource).toContain("safeRun(() => engine.runRenderLoop(activeLoop)");
     expect(gameCanvasSource).toContain('window.addEventListener("pageshow", onPageShow)');
     expect(gameCanvasSource).toContain('window.addEventListener("focus", onFocus)');
     expect(gameCanvasSource).toContain('window.addEventListener("pointerdown", onUserActivity');
     expect(sceneSource).toContain("performance.now()");
-    expect(sceneSource).toContain("engineDelta > 0.001 ? engineDelta : elapsed");
+    expect(sceneSource).toContain("Math.max(engineDelta, safeElapsed)");
+    expect(gameWorldSource).toContain("for (const step of simulationSteps(delta))");
     expect(gameWorldSource).toContain("this.challengeTimer = Math.max(0, this.challengeTimer - capped);");
-    expect(sceneSource).toContain("world.recoverFromRenderError(error);");
+    expect(sceneSource).toContain("safeRun(() => world.recoverFromRenderError(error))");
   });
 
   it("keeps auto-pause and retry commands wired to the world", () => {
     expect(gameWorldSource).toContain('window.addEventListener("arena-auto-pause", this.onAutoPause)');
-    expect(gameWorldSource).toContain('if (this.started && !this.completed) this.paused = true;');
+    expect(gameWorldSource).toContain('if (this.started && !this.completed) this.setPaused(true);');
+    expect(gameWorldSource).toContain("this.input.resetHeldInput();");
+    expect(gameWorldSource).toContain("this.player.clearQueuedAttack();");
+    expect(gameWorldSource).toContain("if (this.attack) this.attack.queued = null;");
     expect(gameWorldSource).toContain('window.removeEventListener("arena-auto-pause", this.onAutoPause)');
     expect(gameWorldSource).toContain("requestLocalRetry();");
     expect(gameWorldSource).toContain('this.result = this.session.finish(reason');
@@ -82,10 +94,14 @@ describe("runtime wiring source contracts", () => {
     expect(gameWorldSource).toContain("if (this.guardBreak >= 100) {");
     expect(gameWorldSource).toContain("this.world.session.recordDamageTaken(brokenDamage);");
     expect(gameWorldSource).toContain("this.world.triggerAttackClash(Vector3.Lerp(this.world.player.root.position, this.root.position, 0.5));");
+    expect(gameWorldSource.match(/if \(this\.world\.player\.isAttackClashActive\(\)\)/g)).toHaveLength(2);
     expect(gameWorldSource.match(/if \(isDignityLost\(this\.dignity\) && !this\.poopTransformed\) this\.transformToPoop\(\);/g)).toHaveLength(2);
     expect(gameWorldSource).toContain("this.world.session.recordPoopTransformation();");
     expect(gameWorldSource).toContain("const targetPoint = enemy.targetPoint(target);");
     expect(gameWorldSource).toContain("const hitRadius = enemy.targetRadius(target);");
+    expect(gameWorldSource).toContain("damage: appliedDamage(this.health, resolved.damage)");
+    expect(gameWorldSource).toContain("dignityDamage: appliedDamage(this.dignity.value, resolved.dignityDamage)");
+    expect(gameWorldSource).toContain("while (activeLightAttack && shouldDiscardExtraWeak");
     expect(gameWorldSource).toContain("counterReady: this.player.counterReady()");
   });
 

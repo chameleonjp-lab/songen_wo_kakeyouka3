@@ -59,6 +59,7 @@ pnpm build
 - [PUBLISHING.md](PUBLISHING.md) — CI、GitHub Pages、静的公開範囲
 - [IPHONE.md](IPHONE.md) — iPhone Safariの確認項目と制約
 - [KNOWN_ISSUES.md](KNOWN_ISSUES.md) — 未完成・検証待ち・既知の制約
+- [POST_PR17_REQUIREMENTS_AUDIT.md](POST_PR17_REQUIREMENTS_AUDIT.md) — PR #17後の要件照合、修正一覧、検証結果
 - [GLB_REAL_DATA_AUDIT.md](GLB_REAL_DATA_AUDIT.md) — GLBの実データ監査詳細
 - [GLB_ANIMATION_CATALOG.md](GLB_ANIMATION_CATALOG.md) — 44アニメーション／40攻撃の対応表
 - [ANIMATION_PHASE_VERIFICATION.md](ANIMATION_PHASE_VERIFICATION.md) — 7フェーズの検証手順とフォールバック方針

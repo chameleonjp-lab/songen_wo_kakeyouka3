@@ -8,6 +8,10 @@ describe("round spawn flow", () => {
     expect(firstFrameAfterDefeat.spawnClock).toBeCloseTo(1.8 - 1 / 30);
   });
 
+  it("does not consume the defeat step from a newly-started intermission", () => {
+    expect(advanceRoundSpawn(0, 1.8, 0.05, true)).toEqual({ spawnClock: 1.8, shouldSpawn: false });
+  });
+
   it("spawns only after the intermission expires and does not duplicate an active challenger", () => {
     expect(advanceRoundSpawn(0, 0.02, 1 / 30).shouldSpawn).toBe(true);
     expect(advanceRoundSpawn(1, 0, 1 / 30)).toEqual({ spawnClock: 0, shouldSpawn: false });

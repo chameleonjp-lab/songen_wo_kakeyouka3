@@ -4,13 +4,18 @@ import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { Node } from "@babylonjs/core/node";
 import { Scene } from "@babylonjs/core/scene";
-import "@babylonjs/loaders/glTF";
+// These audited assets are plain glTF 2.0 with no optional extensions. Import
+// only the v2 loader registration so mobile clients do not download every glTF
+// 1.0 and optional-extension implementation before the first duel.
+import "@babylonjs/loaders/glTF/2.0/glTFLoader";
 import { characterAssets, type CharacterKey } from "@/game/assets";
 import { runtimeFlags } from "@/game/RuntimeFlags";
+import { safeRun, settleWithin } from "@/game/RuntimeResilience";
 
 export type CharacterMotion = "idle" | "move" | "guard" | "light" | "heavy" | "counter" | "hurt" | "dead" | "musou";
 
 export const ROOT_MOTION_POLICY = "code-authoritative-in-place" as const;
+export const CHARACTER_LOAD_TIMEOUT_MS = 8_000;
 
 const visualReadinessCache = new WeakMap<TransformNode, { frameId: number; ready: boolean }>();
 
@@ -124,7 +129,7 @@ export class CharacterAnimator {
   }
 
   stop() {
-    this.current?.stop();
+    safeRun(() => this.current?.stop());
     this.current = null;
   }
 
@@ -132,8 +137,8 @@ export class CharacterAnimator {
     if (this.disposed) return;
     this.disposed = true;
     this.stop();
-    this.groups.forEach((group) => group.dispose());
-    this.disposeOwnedNodes?.();
+    this.groups.forEach((group) => safeRun(() => group.dispose()));
+    safeRun(() => this.disposeOwnedNodes?.());
   }
 
   duration(motion: CharacterMotion, speedRatio = 1) {
@@ -151,16 +156,24 @@ export class CharacterAnimator {
   }
 
   private playGroup(group: AnimationGroup, loop: boolean, speedRatio: number, restart: boolean) {
-    if (group === this.current && !restart) {
+    const previous = this.current;
+    try {
+      if (group === this.current && !restart) {
+        group.speedRatio = speedRatio;
+        return true;
+      }
+      this.current?.stop();
+      this.current = group;
       group.speedRatio = speedRatio;
+      group.reset();
+      group.start(loop, speedRatio);
       return true;
+    } catch {
+      safeRun(() => previous?.stop());
+      if (group !== previous) safeRun(() => group.stop());
+      this.current = null;
+      return false;
     }
-    this.current?.stop();
-    this.current = group;
-    group.speedRatio = speedRatio;
-    group.reset();
-    group.start(loop, speedRatio);
-    return true;
   }
 
   private find(motion: CharacterMotion) {
@@ -180,6 +193,7 @@ export class CharacterLibrary {
   private readonly preparing = new Map<CharacterKey, Promise<boolean>>();
   private readonly failedPreloads = new Set<CharacterKey>();
   private disposed = false;
+  private fallbackOnly = false;
 
   constructor(private readonly scene: Scene) {
     const isTouchMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 680px) and (pointer: coarse)").matches;
@@ -187,7 +201,7 @@ export class CharacterLibrary {
   }
 
   preload(key: CharacterKey) {
-    if (this.disposed) return Promise.resolve(false);
+    if (this.disposed || this.fallbackOnly) return Promise.resolve(false);
     if (this.prepared.has(key)) return Promise.resolve(true);
     const pending = this.preparing.get(key);
     if (pending) return pending;
@@ -201,10 +215,15 @@ export class CharacterLibrary {
       this.preparing.set(key, task);
       return task;
     }
-    const task = this.loadContainerWithRetry(key)
+    const task = settleWithin(
+      this.loadContainerWithRetry(key),
+      CHARACTER_LOAD_TIMEOUT_MS,
+      (container) => safeRun(() => container.dispose()),
+      `${key} character load`,
+    )
       .then((container) => {
-        if (this.disposed) {
-          container.dispose();
+        if (this.disposed || this.fallbackOnly) {
+          safeRun(() => container.dispose());
           return false;
         }
         this.prepared.set(key, container);
@@ -225,6 +244,7 @@ export class CharacterLibrary {
   }
 
   attach(key: CharacterKey, anchor: TransformNode, scale: number, onReady: (instance: TransformNode, animator: CharacterAnimator) => void) {
+    if (this.disposed || this.fallbackOnly || anchor.isDisposed()) return;
     const prepared = this.prepared.get(key);
     if (prepared) {
       this.attachPrepared(key, prepared, anchor, scale, onReady);
@@ -233,9 +253,13 @@ export class CharacterLibrary {
     const pending = this.preparing.get(key);
     if (pending) {
       void pending.then((ready) => {
+        if (this.disposed || this.fallbackOnly || anchor.isDisposed()) return;
         const cached = this.prepared.get(key);
         if (ready && cached) this.attachPrepared(key, cached, anchor, scale, onReady);
         else this.attachImported(key, anchor, scale, onReady);
+      }).catch((error) => {
+        console.warn(`Unable to attach pending ${key} character asset`, error);
+        this.reportLoadFailure(key);
       });
       return;
     }
@@ -245,41 +269,75 @@ export class CharacterLibrary {
 
   dispose() {
     this.disposed = true;
-    this.prepared.forEach((container) => container.dispose());
+    this.fallbackOnly = true;
+    this.prepared.forEach((container) => safeRun(() => container.dispose()));
     this.prepared.clear();
     this.preparing.clear();
     this.failedPreloads.clear();
   }
 
+  forceProceduralFallback() {
+    if (this.fallbackOnly) return;
+    this.fallbackOnly = true;
+    this.prepared.forEach((container) => safeRun(() => container.dispose()));
+    this.prepared.clear();
+    this.failedPreloads.clear();
+  }
+
   private attachPrepared(key: CharacterKey, container: AssetContainer, anchor: TransformNode, scale: number, onReady: (instance: TransformNode, animator: CharacterAnimator) => void) {
-    const entries = container.instantiateModelsToScene((name) => `character-${key}-${this.serial}-${name}`);
-    this.attachVisual(
-      key,
-      entries.rootNodes,
-      entries.animationGroups,
-      anchor,
-      scale,
-      onReady,
-      () => entries.skeletons.forEach((skeleton) => skeleton.dispose()),
-      false,
-    );
-    this.tracePreload("consumed", key);
+    if (this.disposed || this.fallbackOnly || anchor.isDisposed()) return;
+    const snapshot = this.sceneSnapshot();
+    try {
+      // Cached templates must not share materials with a live fighter. An
+      // evicted AssetContainer disposes its own materials; cloned materials
+      // keep the already-visible character valid.
+      const entries = container.instantiateModelsToScene(
+        (name) => `character-${key}-${this.serial}-${name}`,
+        true,
+        { doNotInstantiate: true },
+      );
+      const attached = this.attachVisual(
+        key,
+        entries.rootNodes,
+        entries.animationGroups,
+        anchor,
+        scale,
+        onReady,
+        () => entries.skeletons.forEach((skeleton) => safeRun(() => skeleton.dispose())),
+        true,
+      );
+      if (attached) {
+        this.tracePreload("consumed", key);
+        return;
+      }
+    } catch (error) {
+      console.warn(`Unable to instantiate prepared ${key} character asset`, error);
+    }
+    this.rollbackSceneSnapshot(snapshot);
+    this.attachImported(key, anchor, scale, onReady, true);
   }
 
   private attachImported(key: CharacterKey, anchor: TransformNode, scale: number, onReady: (instance: TransformNode, animator: CharacterAnimator) => void, isFallback = false) {
+    if (this.disposed || this.fallbackOnly || anchor.isDisposed()) return;
     if (isFallback) this.tracePreload("fallback", key);
-    void SceneLoader.ImportMeshAsync("", "", characterAssets[key], this.scene)
+    void settleWithin(
+      SceneLoader.ImportMeshAsync("", "", characterAssets[key], this.scene),
+      CHARACTER_LOAD_TIMEOUT_MS,
+      (result) => this.disposeImportedResult(result.meshes, result.animationGroups, result.skeletons, true),
+      `${key} character import`,
+    )
       .then((result) => {
-        this.attachVisual(
+        const attached = this.attachVisual(
           key,
           result.meshes,
           result.animationGroups,
           anchor,
           scale,
           onReady,
-          () => result.skeletons.forEach((skeleton) => skeleton.dispose()),
+          () => result.skeletons.forEach((skeleton) => safeRun(() => skeleton.dispose())),
           true,
         );
+        if (!attached) this.reportLoadFailure(key);
       })
       .catch((error) => {
         console.warn(`Unable to load ${key} character asset`, error);
@@ -297,35 +355,52 @@ export class CharacterLibrary {
     disposeSkeletons: () => void,
     disposeMaterials: boolean,
   ) {
-    if (this.disposed || anchor.isDisposed()) {
-      animationGroups.forEach((group) => group.dispose());
-      disposeSkeletons();
-      roots.filter((node) => !node.parent).forEach((node) => node.dispose(false, disposeMaterials));
-      return;
-    }
-    const instance = new TransformNode(`character-${key}-${this.serial++}`, this.scene);
-    roots.filter((node) => !node.parent).forEach((node) => { node.parent = instance; });
-    instance.parent = anchor;
-    instance.setEnabled(true);
-    instance.position.set(0, 0, 0);
-    instance.rotation.set(0, 0, 0);
-    instance.scaling.setAll(scale);
-    instance.getChildMeshes(false).forEach((mesh) => {
-      mesh.isVisible = true;
-      mesh.receiveShadows = true;
-      // Prefer the bone texture path on mobile/WebGL where the uniform path
-      // can exceed the vertex-uniform limit and silently drop a skinned mesh.
-      if (mesh.skeleton) mesh.skeleton.useTextureToStoreBoneMatrices = true;
-      mesh.material?.getActiveTextures().forEach((texture) => {
-        texture.anisotropicFilteringLevel = this.textureAnisotropy;
+    let instance: TransformNode | null = null;
+    let animator: CharacterAnimator | null = null;
+    const disposeUnowned = () => {
+      animationGroups.forEach((group) => safeRun(() => group.dispose()));
+      safeRun(disposeSkeletons);
+      if (instance && !instance.isDisposed()) {
+        safeRun(() => instance?.dispose(false, disposeMaterials));
+      } else {
+        roots.filter((node) => !node.parent).forEach((node) => safeRun(() => node.dispose(false, disposeMaterials)));
+      }
+    };
+    try {
+      if (this.disposed || this.fallbackOnly || anchor.isDisposed()) {
+        disposeUnowned();
+        return false;
+      }
+      instance = new TransformNode(`character-${key}-${this.serial++}`, this.scene);
+      roots.filter((node) => !node.parent).forEach((node) => { node.parent = instance; });
+      instance.parent = anchor;
+      instance.setEnabled(true);
+      instance.position.set(0, 0, 0);
+      instance.rotation.set(0, 0, 0);
+      instance.scaling.setAll(scale);
+      instance.getChildMeshes(false).forEach((mesh) => {
+        mesh.isVisible = true;
+        mesh.receiveShadows = true;
+        // Prefer the bone texture path on mobile/WebGL where the uniform path
+        // can exceed the vertex-uniform limit and silently drop a skinned mesh.
+        if (mesh.skeleton) mesh.skeleton.useTextureToStoreBoneMatrices = true;
+        mesh.material?.getActiveTextures().forEach((texture) => {
+          texture.anisotropicFilteringLevel = this.textureAnisotropy;
+        });
       });
-    });
-    const animator = new CharacterAnimator(animationGroups, () => {
-      disposeSkeletons();
-      if (!instance.isDisposed()) instance.dispose(false, disposeMaterials);
-    });
-    animator.play("idle", true);
-    onReady(instance, animator);
+      animator = new CharacterAnimator(animationGroups, () => {
+        safeRun(disposeSkeletons);
+        if (instance && !instance.isDisposed()) safeRun(() => instance?.dispose(false, disposeMaterials));
+      });
+      animator.play("idle", true);
+      onReady(instance, animator);
+      return true;
+    } catch (error) {
+      console.warn(`Unable to prepare ${key} character presentation`, error);
+      if (animator) animator.dispose();
+      else disposeUnowned();
+      return false;
+    }
   }
 
   private tracePreload(state: "requested" | "ready" | "consumed" | "failed" | "fallback", key: CharacterKey) {
@@ -360,8 +435,50 @@ export class CharacterLibrary {
     for (const [key, container] of this.prepared) {
       if (this.prepared.size <= 4) break;
       if (pinned.has(key)) continue;
-      container.dispose();
+      safeRun(() => container.dispose());
       this.prepared.delete(key);
     }
+  }
+
+  private disposeImportedResult(
+    roots: Node[],
+    animationGroups: AnimationGroup[],
+    skeletons: Array<{ dispose: () => void }>,
+    disposeMaterials: boolean,
+  ) {
+    animationGroups.forEach((group) => safeRun(() => group.dispose()));
+    skeletons.forEach((skeleton) => safeRun(() => skeleton.dispose()));
+    roots.filter((node) => !node.parent).forEach((node) => safeRun(() => node.dispose(false, disposeMaterials)));
+  }
+
+  private sceneSnapshot() {
+    return {
+      nodes: new Set<Node>([...this.scene.meshes, ...this.scene.transformNodes]),
+      skeletons: new Set(this.scene.skeletons),
+      animationGroups: new Set(this.scene.animationGroups),
+      materials: new Set(this.scene.materials),
+      multiMaterials: new Set(this.scene.multiMaterials),
+    };
+  }
+
+  private rollbackSceneSnapshot(snapshot: ReturnType<CharacterLibrary["sceneSnapshot"]>) {
+    const newNodes = [...this.scene.meshes, ...this.scene.transformNodes]
+      .filter((node) => !snapshot.nodes.has(node));
+    const newNodeSet = new Set<Node>(newNodes);
+    newNodes
+      .filter((node) => !node.parent || !newNodeSet.has(node.parent))
+      .forEach((node) => safeRun(() => node.dispose(false, true)));
+    this.scene.animationGroups
+      .filter((group) => !snapshot.animationGroups.has(group))
+      .forEach((group) => safeRun(() => group.dispose()));
+    this.scene.skeletons
+      .filter((skeleton) => !snapshot.skeletons.has(skeleton))
+      .forEach((skeleton) => safeRun(() => skeleton.dispose()));
+    this.scene.multiMaterials
+      .filter((material) => !snapshot.multiMaterials.has(material))
+      .forEach((material) => safeRun(() => material.dispose(true, true)));
+    this.scene.materials
+      .filter((material) => !snapshot.materials.has(material))
+      .forEach((material) => safeRun(() => material.dispose(true, true)));
   }
 }

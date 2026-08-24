@@ -125,4 +125,27 @@ describe("character animation runtime", () => {
     expect(group.dispose).toHaveBeenCalledTimes(1);
     expect(disposeOwned).toHaveBeenCalledTimes(1);
   });
+
+  it("continues disposing later animation resources after one cleanup failure", () => {
+    const first = fakeGroup("Broken");
+    const second = fakeGroup("Healthy");
+    first.dispose.mockImplementation(() => { throw new Error("group cleanup failed"); });
+    const disposeOwned = vi.fn();
+    const animator = new CharacterAnimator([first, second] as never, disposeOwned);
+
+    expect(() => animator.dispose()).not.toThrow();
+    expect(first.dispose).toHaveBeenCalledOnce();
+    expect(second.dispose).toHaveBeenCalledOnce();
+    expect(disposeOwned).toHaveBeenCalledOnce();
+  });
+
+  it("falls back instead of throwing when animation playback fails", () => {
+    const group = fakeGroup("Punch_01_Jab");
+    group.start.mockImplementation(() => { throw new Error("GPU animation start failed"); });
+    const animator = new CharacterAnimator([group] as never);
+
+    expect(animator.playNamed("Punch_01_Jab", false, 1, true)).toBe(false);
+    expect(() => animator.playNamed("Punch_01_Jab", false, 1, true)).not.toThrow();
+    animator.dispose();
+  });
 });

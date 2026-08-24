@@ -12,6 +12,12 @@ const INPUT_QUEUE_WINDOW_MS = 620;
 type TouchDirection = "up" | "down" | "left" | "right";
 type ActivePointer = { id: number; button: number; moved: boolean; distance: number };
 
+function isInterfaceKeyTarget(target: EventTarget | null) {
+  const candidate = target as { closest?: (selector: string) => unknown } | null;
+  return typeof candidate?.closest === "function"
+    && Boolean(candidate.closest("button, input, select, textarea, [contenteditable='true'], [role='dialog']"));
+}
+
 export class InputManager {
   private readonly keys = new Set<string>();
   private readonly held = new Set<ArenaAction>();
@@ -51,7 +57,8 @@ export class InputManager {
 
   private readonly keyDown = (event: KeyboardEvent) => {
     const key = event.key.toLowerCase();
-    if (["w", "a", "s", "d", "j", "k", "l", "f", "q", "tab", " ", "escape", "r"].includes(key)) event.preventDefault();
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isInterfaceKeyTarget(event.target)) return;
+    if (["w", "a", "s", "d", "j", "k", "1", "2", "l", "f", "q", " ", "escape", "r"].includes(key)) event.preventDefault();
     this.keys.add(key);
     if (key === "l") this.held.add("guard");
     if (event.repeat) return;
@@ -60,7 +67,7 @@ export class InputManager {
     if (key === " ") this.enqueue("dodge");
     if (key === "l") this.enqueue("guard");
     if (key === "f") this.enqueue("rage");
-    if (key === "q" || key === "tab") this.enqueue("aim");
+    if (key === "q") this.enqueue("aim");
     if (key === "escape") this.enqueue("pause");
     if (key === "r") this.enqueue("restart");
   };
@@ -236,6 +243,7 @@ export class InputManager {
   resetHeldInput() {
     this.keys.clear();
     this.held.clear();
+    this.queue.length = 0;
     this.touchDirections.clear();
     this.activePointer = null;
     this.lookDelta.set(0, 0);

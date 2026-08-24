@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InputManager, inputQueueSettings } from "../client/src/game/InputManager";
+import { shouldDiscardExtraWeak } from "../client/src/game/ComboRules";
 
 type Listener = EventListener;
 
@@ -115,6 +116,22 @@ describe("InputManager runtime queue", () => {
     input.dispose();
   });
 
+  it("discards every invalid third weak tap without losing the queued finisher", () => {
+    const dom = installFakeDom();
+    vi.stubGlobal("performance", { now: () => 100 });
+    const input = new InputManager(dom.canvas);
+
+    touch(dom.window, "light");
+    touch(dom.window, "light");
+    touch(dom.window, "heavy");
+    while (shouldDiscardExtraWeak(2, input.peekAttack())) {
+      expect(input.consumeAttack("light")).toBe(true);
+    }
+    expect(input.peekAttack()).toBe("heavy");
+    expect(input.consumeAttack("heavy")).toBe(true);
+    input.dispose();
+  });
+
   it("does not turn a dragged pointer into an attack and leaves the next tap usable", () => {
     const dom = installFakeDom();
     vi.stubGlobal("performance", { now: () => 100 });
@@ -138,6 +155,7 @@ describe("InputManager runtime queue", () => {
     const pauses: Event[] = [];
     dom.window.addEventListener("arena-auto-pause", (event) => pauses.push(event));
     touch(dom.window, "guard", true);
+    touch(dom.window, "heavy", true);
     dom.window.dispatchEvent(new CustomEvent("arena-touch-move", { detail: { direction: "left", active: true } }));
     expect(input.isHeld("guard")).toBe(true);
     expect(input.movement().x).toBe(-1);
@@ -146,7 +164,43 @@ describe("InputManager runtime queue", () => {
     dom.document.dispatchEvent(new Event("visibilitychange"));
     expect(input.isHeld("guard")).toBe(false);
     expect(input.movement().length()).toBe(0);
+    expect(input.queuedActions()).toEqual([]);
     expect(pauses).toHaveLength(1);
+    input.dispose();
+  });
+
+  it("leaves Tab and controls inside a dialog to the browser interface", () => {
+    const dom = installFakeDom();
+    vi.stubGlobal("performance", { now: () => 100 });
+    const input = new InputManager(dom.canvas);
+    const tabPrevented = vi.fn();
+    dom.windowTarget.dispatchEvent({
+      type: "keydown",
+      key: "Tab",
+      defaultPrevented: false,
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      repeat: false,
+      target: null,
+      preventDefault: tabPrevented,
+    } as unknown as Event);
+    const buttonPrevented = vi.fn();
+    dom.windowTarget.dispatchEvent({
+      type: "keydown",
+      key: " ",
+      defaultPrevented: false,
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      repeat: false,
+      target: { closest: () => ({ tagName: "BUTTON" }) },
+      preventDefault: buttonPrevented,
+    } as unknown as Event);
+
+    expect(tabPrevented).not.toHaveBeenCalled();
+    expect(buttonPrevented).not.toHaveBeenCalled();
+    expect(input.queuedActions()).toEqual([]);
     input.dispose();
   });
 

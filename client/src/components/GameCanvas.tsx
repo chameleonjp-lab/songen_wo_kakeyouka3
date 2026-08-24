@@ -1,12 +1,14 @@
 // Bronze & Blood Arena game surface. React owns presentation and touch affordances;
 // GameWorld remains the source of truth for combat, camera, and run state.
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent } from "react";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { arenaAssets } from "@/game/assets";
 import { loadCombatAudioSettings } from "@/game/CombatAudio";
 import { loadHapticsPreference } from "@/game/Haptics";
 import type { HitLocation } from "@/game/HitLocations";
 import type { RunResult } from "@/game/GameSession";
+import { activeArenaModal } from "@/game/ModalPriority";
+import { safeRun } from "@/game/RuntimeResilience";
 import { TouchLookController } from "@/game/TouchLookController";
 import { createGameScene, type GameHandle } from "@/game/scene";
 
@@ -286,6 +288,14 @@ function ActionButton({ action, label, detail, className = "", disabled = false,
       onPointerCancel={release}
       onPointerLeave={release}
       onLostPointerCapture={release}
+      onClick={(event) => {
+        // Pointer input is already handled above. A zero-detail click is the
+        // keyboard/assistive-technology path and must remain playable.
+        if (event.detail !== 0 || disabled) return;
+        event.preventDefault();
+        onPressed(action, true);
+        window.setTimeout(() => onPressed(action, false), 80);
+      }}
     >
       <span>{label}</span>
       {detail && <small>{detail}</small>}
@@ -321,6 +331,28 @@ function ResultBreakdown({ result }: { result: RunResult }) {
 function resultMessage(result: RunResult) {
   const reason = result.reason === "victory" ? "全戦突破" : result.reason === "retired" ? "リタイア" : "敗北";
   return `尊厳を賭けようか3｜${result.playerName}｜${reason}｜スコア ${result.score}｜ランク ${result.grade}`;
+}
+
+function trapModalFocus(event: ReactKeyboardEvent<HTMLElement>) {
+  if (event.key !== "Tab") return;
+  const focusable = Array.from(
+    event.currentTarget.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => !element.hasAttribute("hidden"));
+  if (focusable.length === 0) {
+    event.preventDefault();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 export default function GameCanvas({ autoStart = false, playerName }: { autoStart?: boolean; playerName: string }) {
@@ -397,50 +429,76 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
     const isAppleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     const maxDevicePixelRatio = isAppleMobile ? 1.35 : isCoarsePointer ? 1.5 : 2;
     const devicePixelRatio = Math.min(window.devicePixelRatio || 1, maxDevicePixelRatio);
-    const engine = new Engine(canvas, true, { preserveDrawingBuffer: false, stencil: true, adaptToDeviceRatio: false });
-    engine.setHardwareScalingLevel(1 / devicePixelRatio);
+    let engine: Engine;
+    try {
+      engine = new Engine(canvas, true, { preserveDrawingBuffer: false, stencil: true, adaptToDeviceRatio: false });
+    } catch (error) {
+      console.error("WebGL engine initialization failed", error);
+      setSceneError("この端末で3D表示を開始できませんでした。ブラウザを閉じてから再読み込みしてください。");
+      startedRef.current = false;
+      return;
+    }
+    let disposed = false;
+    const reportEngineFailure = (error: unknown) => {
+      if (disposed) return;
+      console.error("WebGL engine operation failed", error);
+      setSceneError("3D表示の制御に失敗しました。再読み込みしてもう一度お試しください。");
+    };
     // The canvas is absolutely positioned and its CSS size is established by
     // the first layout pass. Resize once before the first render so Safari
     // does not start with the default 300×150 drawing buffer.
-    engine.resize(true);
+    if (!safeRun(() => {
+      engine.setHardwareScalingLevel(1 / devicePixelRatio);
+      engine.resize(true);
+    }, reportEngineFailure)) {
+      safeRun(() => engine.dispose());
+      startedRef.current = false;
+      return;
+    }
     let handle: GameHandle | null = null;
-    let disposed = false;
     let renderLoop: (() => void) | null = null;
+    let contextRecoveryPending = false;
+    let contextRestoredDuringInitialization = false;
     // Do not read document.hidden on every frame. Safari may keep a stale
     // hidden value while a tab is restored, which otherwise makes the first
     // visible render loop return forever. Visibility events remain the source
     // of truth, with pageshow/focus/user activity as safe recovery signals.
     let pagePaused = document.visibilityState === "hidden";
     const pauseRenderLoop = () => {
-      if (renderLoop) engine.stopRenderLoop(renderLoop);
+      const activeLoop = renderLoop;
+      if (activeLoop) safeRun(() => engine.stopRenderLoop(activeLoop), reportEngineFailure);
     };
     const resumeRenderLoop = () => {
-      if (renderLoop && !pagePaused && !contextLostRef.current) engine.runRenderLoop(renderLoop);
+      const activeLoop = renderLoop;
+      if (activeLoop && !pagePaused && !contextLostRef.current) safeRun(() => engine.runRenderLoop(activeLoop), reportEngineFailure);
+    };
+    const resizeEngine = () => {
+      safeRun(() => engine.resize(true), reportEngineFailure);
     };
     const onVisibility = () => {
       pagePaused = document.visibilityState === "hidden";
       if (pagePaused) pauseRenderLoop();
       else {
-        engine.resize(true);
+        resizeEngine();
         resumeRenderLoop();
       }
     };
     const onPageShow = () => {
       pagePaused = false;
-      engine.resize(true);
+      resizeEngine();
       resumeRenderLoop();
     };
     const onFocus = () => {
       // A focus event is only delivered to the active page. Treat it as a
       // recovery signal for Safari's missed visibilitychange transition.
       pagePaused = false;
-      engine.resize(true);
+      resizeEngine();
       resumeRenderLoop();
     };
     const onUserActivity = () => {
       if (pagePaused) {
         pagePaused = false;
-        engine.resize(true);
+        resizeEngine();
         resumeRenderLoop();
       }
     };
@@ -450,24 +508,42 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
     };
     const onContextLost = (event: Event) => {
       event.preventDefault();
+      contextRecoveryPending = true;
+      contextRestoredDuringInitialization = false;
       contextLostRef.current = true;
       setContextLost(true);
       pauseRenderLoop();
+      window.dispatchEvent(new CustomEvent("arena-auto-pause"));
     };
     const onContextRestored = () => {
+      if (!handle) {
+        contextRestoredDuringInitialization = true;
+        return;
+      }
+      if (!safeRun(() => handle?.recoverFromRenderError(new Error("WebGL context restored; switching to stable procedural presentation")), reportEngineFailure)) return;
+      contextRecoveryPending = false;
+      contextRestoredDuringInitialization = false;
+      renderFailureRef.current = false;
       contextLostRef.current = false;
       setContextLost(false);
-      engine.resize();
+      resizeEngine();
       resumeRenderLoop();
     };
     void createGameScene(engine, canvas, playerName)
       .then((game) => {
         if (disposed) {
-          game.dispose();
+          safeRun(() => game.dispose());
           return;
         }
         handle = game;
-        engine.resize(true);
+        if (contextRecoveryPending && contextRestoredDuringInitialization) {
+          if (!safeRun(() => game.recoverFromRenderError(new Error("WebGL context restored during scene initialization")), reportEngineFailure)) return;
+          contextRecoveryPending = false;
+          contextRestoredDuringInitialization = false;
+          contextLostRef.current = false;
+          setContextLost(false);
+        }
+        resizeEngine();
         if (autoStart) game.start();
         if (autoStart && query.has("launchAudit")) console.info("[LaunchAudit] game started");
         renderLoop = () => {
@@ -477,15 +553,23 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
           } catch (error) {
             if (!renderFailureRef.current) {
               renderFailureRef.current = true;
-              game.recoverFromRenderError(error);
+              if (!safeRun(() => game.recoverFromRenderError(error), reportEngineFailure)) {
+                pauseRenderLoop();
+                return;
+              }
               console.warn("Arena render failed; continuing with procedural fighter presentation", error);
+            } else {
+              pauseRenderLoop();
+              console.error("Arena render failed after procedural recovery", error);
+              setSceneError("映像の復旧に失敗しました。再読み込みしてもう一度お試しください。");
             }
           }
         };
         // Register even when the first callback happens during a hidden
         // transition. The callback guard above makes this safe and avoids a
         // permanently frozen first frame if visibilitychange was missed.
-        engine.runRenderLoop(renderLoop);
+        const activeLoop = renderLoop;
+        if (activeLoop) safeRun(() => engine.runRenderLoop(activeLoop), reportEngineFailure);
       })
       .catch((error) => {
         if (disposed) return;
@@ -514,6 +598,11 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
       if (assetNoticeTimerRef.current !== null) window.clearTimeout(assetNoticeTimerRef.current);
       assetNoticeTimerRef.current = window.setTimeout(() => setAssetNotice(""), 4200);
     };
+    const onRuntimeFatal = (event: Event) => {
+      const message = (event as CustomEvent<{ message?: string }>).detail?.message;
+      pauseRenderLoop();
+      setSceneError(message || "ゲームの更新を続けられませんでした。再読み込みしてもう一度お試しください。");
+    };
     window.addEventListener("resize", onResize);
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pageshow", onPageShow);
@@ -526,6 +615,7 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
     window.addEventListener("arena-entry-roar", onEntryRoar);
     window.addEventListener("arena-asset-error", onAssetError);
     window.addEventListener("arena-render-recovered", onRenderRecovered);
+    window.addEventListener("arena-runtime-fatal", onRuntimeFatal);
     return () => {
       disposed = true;
       window.removeEventListener("resize", onResize);
@@ -540,10 +630,11 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
       window.removeEventListener("arena-entry-roar", onEntryRoar);
       window.removeEventListener("arena-asset-error", onAssetError);
       window.removeEventListener("arena-render-recovered", onRenderRecovered);
+      window.removeEventListener("arena-runtime-fatal", onRuntimeFatal);
       if (assetNoticeTimerRef.current !== null) window.clearTimeout(assetNoticeTimerRef.current);
       pauseRenderLoop();
-      handle?.dispose();
-      engine.dispose();
+      safeRun(() => handle?.dispose());
+      safeRun(() => engine.dispose());
       startedRef.current = false;
     };
   }, [audioDebug, autoStart, playerName, query]);
@@ -553,6 +644,13 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
     event.stopPropagation();
     if (active) event.currentTarget.setPointerCapture?.(event.pointerId);
     handleDirectionPressed(direction, active);
+  };
+
+  const onDirectionSyntheticClick = (direction: TouchDirection, event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (event.detail !== 0) return;
+    event.preventDefault();
+    handleDirectionPressed(direction, true);
+    window.setTimeout(() => handleDirectionPressed(direction, false), 100);
   };
 
   const onLookDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -645,19 +743,27 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
     command("shake", value);
   };
 
-  const isLoading = !sceneError && (hud.loadState === "loading" || (autoStart && !isDemo && !hud.started && !hud.result));
-  const showTouchUi = hud.started && !hud.result;
+  const activeModal = activeArenaModal({
+    sceneError: Boolean(sceneError),
+    contextLost,
+    hasResult: Boolean(hud.result),
+    paused: hud.paused,
+  });
+  const isLoading = !activeModal && (hud.loadState === "loading" || (autoStart && !isDemo && !hud.started && !hud.result));
+  const showTouchUi = hud.started && !activeModal;
   const lockLabel = hud.lockTarget ? "LOCK ON" : "FREE LOOK";
   const statusText = hud.notice || (hud.heartOpen ? "心臓が開いた — 狙いを切り替えろ" : "戦列を見極めろ");
 
   return (
     <main className="arena-shell" aria-label="尊厳を賭けようか3 闘技場" style={{ "--arena-panel-image": `url("${arenaAssets.visualTarget}")` } as CSSProperties}>
-      <canvas ref={canvasRef} className="arena-canvas" style={{ touchAction: "none" }} tabIndex={0} aria-label="闘技場の3Dビュー" />
+      <canvas ref={canvasRef} className="arena-canvas" style={{ touchAction: "none" }} tabIndex={activeModal ? -1 : 0} aria-hidden={activeModal ? true : undefined} aria-label="闘技場の3Dビュー" />
       <div
         ref={lookSurfaceRef}
         className="touch-camera-surface"
         aria-label="視点操作"
+        aria-hidden={activeModal ? true : undefined}
         role="application"
+        style={activeModal ? { pointerEvents: "none" } : undefined}
         onPointerDown={onLookDown}
         onPointerMove={onLookMove}
         onPointerUp={onLookEnd}
@@ -703,7 +809,7 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
             {hud.counterReady && <small>カウンター受付：強攻撃</small>}
             {hud.guardBreak > 0 && <small>ガード崩し {Math.round(hud.guardBreak)}%</small>}
           </div>
-          <div className="combat-meta"><span>狙い切替 Q / TAB</span><span>経過 {formatClock(hud.elapsedSeconds)}</span></div>
+          <div className="combat-meta"><span>狙い切替 Q</span><span>経過 {formatClock(hud.elapsedSeconds)}</span></div>
         </div>
       </section>
 
@@ -713,13 +819,13 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
             <span className="touch-cluster-label">MOVE</span>
             <div className="touch-dpad" aria-label="左移動">
               <span />
-              <button type="button" data-direction="up" aria-label="上へ" aria-pressed={Boolean(pressedTouch.up)} className={pressedTouch.up ? "is-pressed" : ""} onPointerDown={(event) => onDirectionPointer("up", true, event)} onPointerUp={(event) => onDirectionPointer("up", false, event)} onPointerCancel={(event) => onDirectionPointer("up", false, event)} onLostPointerCapture={(event) => onDirectionPointer("up", false, event)}>▲</button>
+              <button type="button" data-direction="up" aria-label="上へ" aria-pressed={Boolean(pressedTouch.up)} className={pressedTouch.up ? "is-pressed" : ""} onPointerDown={(event) => onDirectionPointer("up", true, event)} onPointerUp={(event) => onDirectionPointer("up", false, event)} onPointerCancel={(event) => onDirectionPointer("up", false, event)} onLostPointerCapture={(event) => onDirectionPointer("up", false, event)} onClick={(event) => onDirectionSyntheticClick("up", event)}>▲</button>
               <span />
-              <button type="button" data-direction="left" aria-label="左へ" aria-pressed={Boolean(pressedTouch.left)} className={pressedTouch.left ? "is-pressed" : ""} onPointerDown={(event) => onDirectionPointer("left", true, event)} onPointerUp={(event) => onDirectionPointer("left", false, event)} onPointerCancel={(event) => onDirectionPointer("left", false, event)} onLostPointerCapture={(event) => onDirectionPointer("left", false, event)}>◀</button>
+              <button type="button" data-direction="left" aria-label="左へ" aria-pressed={Boolean(pressedTouch.left)} className={pressedTouch.left ? "is-pressed" : ""} onPointerDown={(event) => onDirectionPointer("left", true, event)} onPointerUp={(event) => onDirectionPointer("left", false, event)} onPointerCancel={(event) => onDirectionPointer("left", false, event)} onLostPointerCapture={(event) => onDirectionPointer("left", false, event)} onClick={(event) => onDirectionSyntheticClick("left", event)}>◀</button>
               <span className="dpad-core" aria-hidden="true">＋</span>
-              <button type="button" data-direction="right" aria-label="右へ" aria-pressed={Boolean(pressedTouch.right)} className={pressedTouch.right ? "is-pressed" : ""} onPointerDown={(event) => onDirectionPointer("right", true, event)} onPointerUp={(event) => onDirectionPointer("right", false, event)} onPointerCancel={(event) => onDirectionPointer("right", false, event)} onLostPointerCapture={(event) => onDirectionPointer("right", false, event)}>▶</button>
+              <button type="button" data-direction="right" aria-label="右へ" aria-pressed={Boolean(pressedTouch.right)} className={pressedTouch.right ? "is-pressed" : ""} onPointerDown={(event) => onDirectionPointer("right", true, event)} onPointerUp={(event) => onDirectionPointer("right", false, event)} onPointerCancel={(event) => onDirectionPointer("right", false, event)} onLostPointerCapture={(event) => onDirectionPointer("right", false, event)} onClick={(event) => onDirectionSyntheticClick("right", event)}>▶</button>
               <span />
-              <button type="button" data-direction="down" aria-label="下へ" aria-pressed={Boolean(pressedTouch.down)} className={pressedTouch.down ? "is-pressed" : ""} onPointerDown={(event) => onDirectionPointer("down", true, event)} onPointerUp={(event) => onDirectionPointer("down", false, event)} onPointerCancel={(event) => onDirectionPointer("down", false, event)} onLostPointerCapture={(event) => onDirectionPointer("down", false, event)}>▼</button>
+              <button type="button" data-direction="down" aria-label="下へ" aria-pressed={Boolean(pressedTouch.down)} className={pressedTouch.down ? "is-pressed" : ""} onPointerDown={(event) => onDirectionPointer("down", true, event)} onPointerUp={(event) => onDirectionPointer("down", false, event)} onPointerCancel={(event) => onDirectionPointer("down", false, event)} onLostPointerCapture={(event) => onDirectionPointer("down", false, event)} onClick={(event) => onDirectionSyntheticClick("down", event)}>▼</button>
               <span />
             </div>
           </div>
@@ -734,7 +840,7 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
         </nav>
       )}
 
-      {hud.intermission && hud.started && !hud.paused && !hud.result && (
+      {hud.intermission && hud.started && !activeModal && (
         <section className="intermission-banner" aria-live="assertive">
           <span>ROUND {String(hud.round).padStart(2, "0")} · 次の対戦相手</span>
           <strong>{hud.challenger || hud.enemyName}</strong>
@@ -744,14 +850,14 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
         </section>
       )}
 
-      {hud.started && !hud.paused && !hud.result && (
+      {hud.started && !activeModal && (
         <aside className="orientation-hint" aria-label="画面向きの案内">
           <span className="orientation-portrait-label">縦画面でプレイ中</span>
           <span className="orientation-landscape-label">縦画面に戻してください</span>
         </aside>
       )}
 
-      {!hud.started && !isDemo && !autoStart && !hud.result && (
+      {!hud.started && !isDemo && !autoStart && !activeModal && (
         <section className="intro-panel" aria-label="ゲーム開始">
           <div className="arena-seal" aria-hidden="true"><span>Ⅲ</span><i /></div>
           <img className="intro-sigil" src={arenaAssets.sigil} alt="" />
@@ -764,7 +870,7 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
         </section>
       )}
 
-      {isLoading && !hud.result && (
+      {isLoading && (
         <section className="game-loading-panel in-game-loading" aria-live="polite" aria-busy="true">
           <p className="eyebrow">PREPARING THE BLOOD RING</p>
           <h1>闘技場を構築中</h1>
@@ -772,24 +878,24 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
         </section>
       )}
 
-      {contextLost && (
-        <section className="graphics-recovery-overlay" role="alert" aria-live="assertive">
+      {activeModal === "graphics-recovery" && (
+        <section className="graphics-recovery-overlay" role="dialog" aria-modal="true" aria-labelledby="graphics-recovery-title" aria-live="assertive" onKeyDown={trapModalFocus}>
           <div className="graphics-recovery-panel">
             <p className="eyebrow">GRAPHICS CONNECTION LOST</p>
-            <h2>映像を再接続中</h2>
+            <h2 id="graphics-recovery-title">映像を再接続中</h2>
             <p>端末の負荷が落ち着くまでお待ちください。復旧しない場合は再読み込みしてください。</p>
-            <button className="enter-button" type="button" onClick={() => window.location.reload()}>再読み込み</button>
+            <button className="enter-button" type="button" autoFocus onClick={() => window.location.reload()}>再読み込み</button>
           </div>
         </section>
       )}
 
-      {sceneError && (
-        <section className="graphics-recovery-overlay" role="alert" aria-live="assertive">
+      {activeModal === "scene-error" && (
+        <section className="graphics-recovery-overlay" role="dialog" aria-modal="true" aria-labelledby="scene-error-title" aria-live="assertive" onKeyDown={trapModalFocus}>
           <div className="graphics-recovery-panel">
             <p className="eyebrow">ARENA START FAILED</p>
-            <h2>闘技場を開始できません</h2>
+            <h2 id="scene-error-title">闘技場を開始できません</h2>
             <p>{sceneError}</p>
-            <button className="enter-button" type="button" onClick={() => window.location.reload()}>再試行</button>
+            <button className="enter-button" type="button" autoFocus onClick={() => window.location.reload()}>再試行</button>
           </div>
         </section>
       )}
@@ -803,13 +909,13 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
         </aside>
       )}
 
-      {hud.paused && !hud.result && (
-        <section className="pause-overlay" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+      {activeModal === "pause" && (
+        <section className="pause-overlay" role="dialog" aria-modal="true" aria-labelledby="pause-title" onKeyDown={trapModalFocus}>
           <div className="pause-panel">
             <p className="eyebrow">THE CROWD WAITS</p>
             <h2 id="pause-title">一時停止</h2>
             <p className="pause-player">{hud.playerName} · ROUND {hud.round}/{hud.roundTotal}</p>
-            <div className="pause-actions"><button className="enter-button" type="button" onClick={() => command("pause")}>戦いへ戻る</button><button className="quiet-button" type="button" onClick={() => command("retire")}>リタイア</button><button className="quiet-button" type="button" onClick={() => command("top")}>トップへ</button></div>
+            <div className="pause-actions"><button className="enter-button" type="button" autoFocus onClick={() => command("pause")}>戦いへ戻る</button><button className="quiet-button" type="button" onClick={() => command("retire")}>リタイア</button><button className="quiet-button" type="button" onClick={() => command("top")}>トップへ</button></div>
             <div className="pause-settings">
               <div className="settings-row"><span>全体音量</span><input aria-label="マスター音量" type="range" min="0" max="1" step="0.05" value={masterVolume} onChange={(event) => setVolume(Number(event.target.value))} /><strong>{Math.round(masterVolume * 100)}%</strong><button type="button" className="settings-button" onClick={() => setMute(!muted)} aria-pressed={muted}>{muted ? "ミュート解除" : "ミュート"}</button></div>
               <div className="settings-row"><span>音楽</span><input aria-label="音楽音量" type="range" min="0" max="1" step="0.05" value={musicVolume} onChange={(event) => setAudioBus("music", Number(event.target.value))} /><strong>{Math.round(musicVolume * 100)}%</strong></div>
@@ -824,15 +930,15 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
         </section>
       )}
 
-      {hud.result && (
-        <section className="result-overlay" role="dialog" aria-modal="true" aria-labelledby="result-title">
+      {activeModal === "result" && hud.result && (
+        <section className="result-overlay" role="dialog" aria-modal="true" aria-labelledby="result-title" onKeyDown={trapModalFocus}>
           <div className="result-panel">
             <p className="eyebrow">ARENA RECORD · {hud.result.playerName}</p>
             <div className="result-heading"><div><h2 id="result-title">{hud.result.reason === "victory" ? "全戦突破" : hud.result.reason === "retired" ? "リタイア" : "倒れた"}</h2><p>{hud.result.isNewBest ? "NEW PERSONAL BEST" : `BEST ${hud.result.personalBest.toLocaleString()}`}</p></div><strong className="result-grade">{hud.result.grade}</strong></div>
             <div className="result-score"><span>SCORE</span><strong>{hud.result.score.toLocaleString()}</strong></div>
             <ResultBreakdown result={hud.result} />
             <p className="share-status" aria-live="polite">{shareStatus}</p>
-            <div className="result-actions"><button className="enter-button" type="button" onClick={() => command("restart")}>再挑戦</button><button className="quiet-button" type="button" onClick={() => command("top")}>トップへ</button><button className="share-button" type="button" onClick={() => void shareResult()}>Web Share</button><button className="share-button" type="button" onClick={() => void copyResult()}>コピー</button></div>
+            <div className="result-actions"><button className="enter-button" type="button" autoFocus onClick={() => command("restart")}>再挑戦</button><button className="quiet-button" type="button" onClick={() => command("top")}>トップへ</button><button className="share-button" type="button" onClick={() => void shareResult()}>Web Share</button><button className="share-button" type="button" onClick={() => void copyResult()}>コピー</button></div>
           </div>
         </section>
       )}

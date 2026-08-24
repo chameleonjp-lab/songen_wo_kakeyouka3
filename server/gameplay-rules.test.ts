@@ -7,12 +7,14 @@ import {
   DEFAULT_DIGNITY_CONFIG,
   DEFAULT_ENEMY_ROSTER,
   DEFAULT_HIT_LOCATION_TUNING,
+  COUNTER_WINDOW_SECONDS,
   TARGET_VOLUME_RADIUS,
   ENEMY_ROSTER_ORDER,
   ENEMY_ATTACK_SETS,
   applyDignityDamage,
   applyDignityEvent,
   applyScoreEvent,
+  canQueueWeakFollowup,
   classifyHitLocation,
   createCombatBalance,
   createDignityState,
@@ -21,14 +23,32 @@ import {
   enemyHealth,
   enemyRosterIndex,
   isDignityLost,
+  JUST_GUARD_WINDOW_SECONDS,
   pointsForHit,
   resolveHit,
   selectAttackMove,
   PUNCH_ANIMATIONS,
   KICK_ANIMATIONS,
   ShortInputQueue,
+  shouldDiscardExtraWeak,
   tickScore,
 } from "../client/src/game/GameplayRules";
+
+describe("formal weak combo route", () => {
+  it("accepts one weak follow-up and discards a third weak tap", () => {
+    expect(canQueueWeakFollowup(1)).toBe(true);
+    expect(canQueueWeakFollowup(2)).toBe(false);
+    expect(shouldDiscardExtraWeak(2, "light")).toBe(true);
+    expect(shouldDiscardExtraWeak(2, "heavy")).toBe(false);
+  });
+});
+
+describe("formal defensive timing", () => {
+  it("keeps the documented just-guard and counter windows", () => {
+    expect(JUST_GUARD_WINDOW_SECONDS).toBe(0.16);
+    expect(COUNTER_WINDOW_SECONDS).toBe(0.72);
+  });
+});
 
 describe("pure combat balance", () => {
   it("keeps the current combat shape while making enemy health a deliberate tune", () => {
@@ -162,6 +182,13 @@ describe("score ledger", () => {
     expect(state.total).toBe(positive - 20 - 30 - 250);
     state = applyScoreEvent(state, { type: "miss" });
     expect(state.misses).toBe(1);
+  });
+
+  it("records player dignity loss only through its dedicated event", () => {
+    const hit = applyScoreEvent(createScoreState(), { type: "hit", damage: 4, location: "head" });
+    expect(hit.dignityLost).toBe(0);
+    const playerLoss = applyScoreEvent(hit, { type: "dignity-loss", amount: 7 });
+    expect(playerLoss.dignityLost).toBe(7);
   });
 
   it("awards up to 1500 for each short round and records total elapsed separately", () => {
