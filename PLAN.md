@@ -11,7 +11,7 @@
 | 領域 | 現行条件 | 根拠・検証箇所 |
 |---|---|---|
 | 連戦 | 開始待機3秒、6ラウンド、同時敵1体、撃破後の幕間1.8秒、6体撃破で勝利 | `GameWorld.ts`, `RoundFlow` テスト |
-| 操作 | WASD／マウス、J/K/L/F/Space、QまたはTabの狙い切替、タッチDパッドと5アクション | `InputManager.ts`, `OPERATIONS.md` |
+| 操作 | WASD／マウス、J/K/L/F/Space、Qの狙い切替、タッチDパッドと6アクション | `InputManager.ts`, `OPERATIONS.md` |
 | 戦闘 | 弱・強、弱→強、弱→弱→強、ガード、ジャストガード、カウンター、攻撃相殺、怒破 | `GameWorld.ts`, `CombatClash`／ゲームプレイテスト |
 | ターゲット | 胴体、頭、心臓（心臓は露出状態の確認が必要） | `HitLocations.ts` |
 | スコア | ヒット位置、コンボ、固有技、撃破、時間、被ダメージ、尊厳喪失、変身を台帳化 | `Score.ts`, `GameSession.ts`, `SCORE.md` |

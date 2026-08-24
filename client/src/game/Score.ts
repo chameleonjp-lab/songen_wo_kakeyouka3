@@ -72,7 +72,7 @@ export type HitScoreInput = Readonly<{
 }>;
 
 export type ScoreEvent =
-  | (Readonly<{ type: "hit" }> & HitScoreInput & Readonly<{ dignityDamage?: number }>)
+  | (Readonly<{ type: "hit" }> & HitScoreInput)
   | Readonly<{ type: "new-move"; moveId?: string; move?: string }>
   | Readonly<{ type: "guard"; just?: boolean }>
   | Readonly<{ type: "clash" }>
@@ -246,7 +246,6 @@ export function applyScoreEvent(
         headHits: state.headHits + (head ? 1 : 0),
         uniqueMoves: state.uniqueMoves + (moveUse?.unique ? 1 : 0),
         moveUses: moveUse?.moveUses ?? state.moveUses,
-        dignityLost: state.dignityLost + safeNonNegative(event.dignityDamage),
       });
     }
     case "new-move": {

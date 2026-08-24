@@ -317,7 +317,7 @@ body { -webkit-tap-highlight-color: transparent; }
 
 @media (max-width: 420px) {
   .touch-actions { grid-template-columns: repeat(3, 47px); grid-template-rows: repeat(2, 47px); gap: 3px; }
-  .touch-dpad { grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(3, 40px); }
+  .touch-dpad { grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); }
   .touch-action { font-size: 9px; }
   .touch-action small { display: none; }
   .mobile-controller { min-height: 103px; }

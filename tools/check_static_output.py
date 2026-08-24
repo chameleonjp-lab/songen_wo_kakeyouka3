@@ -20,6 +20,7 @@ HTML_REFERENCE = re.compile(r"(?:src|href)\s*=\s*([\"'])(.*?)\1", re.IGNORECASE)
 RUNTIME_ASSET = re.compile(r'publicAssetUrl\(\s*["\']([^"\']+)["\']\s*\)')
 ABSOLUTE_LOCAL = re.compile(r"[\"']/(?:assets|characters|src|fonts)/")
 REMOTE_PREFIXES = ("http://", "https://", "//", "data:", "mailto:", "javascript:")
+FORBIDDEN_PUBLISH_PARTS = {"__manus__", "debug-collector.js"}
 
 
 def local_reference(value: str) -> str | None:
@@ -65,6 +66,10 @@ def check(dist: Path) -> list[str]:
         source = chunk.read_text(encoding="utf-8", errors="replace")
         if ABSOLUTE_LOCAL.search(source):
             errors.append(f"root-absolute local asset reference in {chunk.relative_to(dist)}")
+
+    for target in dist.rglob("*"):
+        if target.is_file() and FORBIDDEN_PUBLISH_PARTS.intersection(target.relative_to(dist).parts):
+            errors.append(f"development-only debug asset in publish output: {target.relative_to(dist)}")
 
     return errors
 

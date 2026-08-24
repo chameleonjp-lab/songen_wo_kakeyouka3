@@ -22,19 +22,30 @@ import { CharacterAnimator, CharacterLibrary, isCharacterVisualRenderable, type 
 import { InputManager } from "@/game/InputManager";
 import { CombatAudio } from "@/game/CombatAudio";
 import { createEntryRoarTelemetry } from "@/game/EntryRoarTelemetry";
-import { isAttackClashWindow } from "@/game/CombatClash";
+import { ATTACK_CLASH_PROGRESS_MIN, entersAttackClashWindow, isAttackClashWindow } from "@/game/CombatClash";
 import { Haptics } from "@/game/Haptics";
 import { applyLockCameraLook, lockCameraRadius } from "@/game/CameraRig";
 import { fixedThirdPersonRig } from "@/game/FixedThirdPersonCamera";
 import { advanceRoundSpawn } from "@/game/RoundFlow";
 import { selectAttackMove, ENEMY_ATTACK_SETS, ATTACK_BY_NAME, type AttackMove } from "@/game/AttackCatalog";
 import { DEFAULT_COMBAT_BALANCE } from "@/game/CombatBalance";
+import { canQueueWeakFollowup, shouldDiscardExtraWeak } from "@/game/ComboRules";
+import { COUNTER_WINDOW_SECONDS, JUST_GUARD_WINDOW_SECONDS } from "@/game/CombatTiming";
 import { applyDignityDamage, createDignityState, isDignityLost, type DignityState } from "@/game/Dignity";
 import { DEFAULT_ENEMY_ROSTER, enemyProfileFor, type EnemyProfile } from "@/game/EnemyRoster";
+import {
+  appliedDamage,
+  crocodileGuardBreaks,
+  crocodileGuardsHit,
+  enemyAttackContinuesThroughHit,
+  enemyEngageDistance,
+  enemyHitRange,
+} from "@/game/EnemyCombat";
 import { resolveHit, TARGET_VOLUME_RADIUS, type HitLocation } from "@/game/HitLocations";
 import { GameSession, targetLabel, type RunResult } from "@/game/GameSession";
 import { runtimeFlags } from "@/game/RuntimeFlags";
 import { requestLocalRetry } from "@/game/PlayerProfile";
+import { safeRun, simulationSteps } from "@/game/RuntimeResilience";
 
 type PlayerMode = "idle" | "move" | "light" | "heavy" | "guard" | "counter" | "musou" | "dodge" | "fallen";
 type EnemyMode = "spawn" | "approach" | "telegraph" | "strike" | "charge" | "recover" | "stagger" | "dead";
@@ -129,6 +140,30 @@ const challengerNames: Record<EnemyCharacterKey, string> = Object.fromEntries(
   Object.entries(enemyPresentations).map(([key, profile]) => [key, profile.name]),
 ) as Record<EnemyCharacterKey, string>;
 
+function createProceduralPoopHead(
+  scene: Scene,
+  parent: TransformNode,
+  material: StandardMaterial,
+  name: string,
+  baseY: number,
+) {
+  const layers = [
+    { diameter: 0.58, y: baseY },
+    { diameter: 0.44, y: baseY + 0.25 },
+    { diameter: 0.3, y: baseY + 0.45 },
+    { diameter: 0.17, y: baseY + 0.61 },
+  ];
+  return layers.map((layer, index) => {
+    const mesh = MeshBuilder.CreateSphere(`${name}-${index}`, { diameter: layer.diameter, segments: 8 }, scene);
+    mesh.parent = parent;
+    mesh.position.y = layer.y;
+    mesh.scaling.z = index === layers.length - 1 ? 0.72 : 1;
+    mesh.material = material;
+    mesh.isVisible = false;
+    return mesh;
+  });
+}
+
 export class GameWorld {
   readonly scene: Scene;
   readonly input: InputManager;
@@ -163,8 +198,6 @@ export class GameWorld {
   private assetsPrepared = false;
   private paused = false;
   private killCount = 0;
-  private combo = 0;
-  private comboDecay = 0;
   private cameraShake = 0;
   private lockTarget: BarbarianEnemy | null = null;
   private cameraOrbitOffset = 0;
@@ -179,13 +212,15 @@ export class GameWorld {
   private randomState = 0x51f15e;
   private disposed = false;
   private proceduralFallbackActive = false;
+  private currentStepDelta = 0;
+  private roundTransitionStartedThisStep = false;
   private readonly auditTimers: number[] = [];
   private readonly effectPool = new Map<CombatEffectKind, CombatEffect[]>();
   private readonly onCommand = (event: Event) => {
     const detail = (event as CustomEvent<{ command: string; value?: string | number | boolean }>).detail;
     const command = detail?.command;
     if (command === "start") this.start();
-    if (command === "pause") this.paused = !this.paused;
+    if (command === "pause") this.setPaused(!this.paused);
     if (command === "restart") {
       requestLocalRetry();
       window.location.reload();
@@ -196,17 +231,25 @@ export class GameWorld {
   };
 
   private readonly onAutoPause = () => {
-    if (this.started && !this.completed) this.paused = true;
+    if (this.started && !this.completed) this.setPaused(true);
   };
+
+  private setPaused(paused: boolean) {
+    if (paused && !this.paused) {
+      this.input.resetHeldInput();
+      this.player.clearQueuedAttack();
+    }
+    this.paused = paused;
+  }
 
   private readonly onAudioSettings = (event: Event) => {
     const detail = (event as CustomEvent<Partial<import("@/game/CombatAudio").CombatAudioSettings>>).detail;
-    if (detail) this.audio.updateSettings(detail);
+    if (detail) safeRun(() => this.audio.updateSettings(detail));
   };
 
   private readonly onHapticsSettings = (event: Event) => {
     const enabled = (event as CustomEvent<{ enabled?: boolean }>).detail?.enabled;
-    if (typeof enabled === "boolean") this.haptics.setEnabled(enabled);
+    if (typeof enabled === "boolean") safeRun(() => this.haptics.setEnabled(enabled));
   };
 
   constructor(scene: Scene, canvas: HTMLCanvasElement, playerName: string) {
@@ -242,13 +285,22 @@ export class GameWorld {
     window.addEventListener("arena-audio-settings", this.onAudioSettings);
     window.addEventListener("arena-haptics-settings", this.onHapticsSettings);
     this.startRequested = this.input.isDemo;
-    void initialPreload.then((results) => {
-      if (this.disposed) return;
-      this.assetsPrepared = true;
-      if (results.some((ready) => !ready)) this.notify("一部素材を代替表示で開始します", 1.8);
-      if (this.startRequested) this.beginRun();
-      this.emitHud(1);
-    });
+    void initialPreload
+      .then((results) => {
+        if (this.disposed) return;
+        this.assetsPrepared = true;
+        if (results.some((ready) => !ready)) this.notify("一部素材を代替表示で開始します", 1.8);
+        if (this.startRequested) this.beginRun();
+        this.emitHud(1);
+      })
+      .catch((error) => {
+        if (this.disposed) return;
+        console.error("Unable to finish initial character preparation", error);
+        this.assetsPrepared = true;
+        this.notify("3D素材を簡易表示へ切り替えます", 2.2);
+        this.recoverFromRenderError(error);
+        if (this.startRequested) this.beginRun();
+      });
     if (this.input.isDemo && runtimeFlags.audioAudit) {
       this.scheduleAudit(() => this.runAudioAudit(), 260);
     }
@@ -346,12 +398,17 @@ export class GameWorld {
   }
 
   update(delta: number) {
-    if (this.disposed) return;
-    // Preserve real-time pacing on a temporarily slow mobile frame while
-    // bounding a background-tab resume spike.
-    const rawDelta = Math.min(delta, 0.1);
+    for (const step of simulationSteps(delta)) {
+      if (this.disposed) return;
+      this.updateStep(step);
+    }
+  }
+
+  private updateStep(rawDelta: number) {
+    this.roundTransitionStartedThisStep = false;
     this.slowMotionTime = Math.max(0, this.slowMotionTime - rawDelta);
     const capped = rawDelta * (this.slowMotionTime > 0 ? 0.3 : 1);
+    this.currentStepDelta = capped;
     this.elapsed += capped;
     this.bannerNodes.forEach((cloth, index) => {
       cloth.rotation.z = Math.sin(this.elapsed * 1.65 + index * 1.7) * 0.04;
@@ -359,7 +416,7 @@ export class GameWorld {
     });
 
     this.input.update(capped);
-    if (this.input.consume("pause")) this.paused = !this.paused;
+    if (this.input.consume("pause")) this.setPaused(!this.paused);
     if (this.input.consume("restart")) {
       requestLocalRetry();
       window.location.reload();
@@ -376,19 +433,22 @@ export class GameWorld {
     // path can still publish a newer countdown instead of leaving the HUD at
     // the preload value forever.
     this.challengeTimer = Math.max(0, this.challengeTimer - capped);
-    const roundActive = !combatFrozen && this.enemies.some((enemy) => !enemy.removed && enemy.mode !== "dead" && enemy.mode !== "spawn");
+    const roundActive = !combatFrozen
+      && this.player.mode !== "fallen"
+      && this.enemies.some((enemy) => !enemy.removed && enemy.mode !== "dead" && enemy.mode !== "spawn");
     this.session.tick(capped, roundActive);
     this.noticeTime = Math.max(0, this.noticeTime - capped);
     if (this.noticeTime <= 0) this.notice = "";
     if (!combatFrozen) this.player.update(capped);
-    if (this.player.mode === "fallen") {
+    const playerFallen = this.player.mode === "fallen";
+    if (playerFallen && this.player.defeatPresentationComplete()) {
       this.finishRun("defeat");
       this.emitHud(1);
       return;
     }
     const rageReady = this.player.rage >= 100;
     this.enemies.forEach((enemy) => enemy.setRageOutline(rageReady));
-    for (const enemy of [...this.enemies]) enemy.update(capped, combatFrozen);
+    for (const enemy of [...this.enemies]) enemy.update(capped, combatFrozen || playerFallen);
     this.effects.forEach((effect) => effect.update(capped));
     for (let index = this.effects.length - 1; index >= 0; index -= 1) {
       if (this.effects[index].done) {
@@ -404,12 +464,19 @@ export class GameWorld {
       if (this.enemies[index].removed) this.enemies.splice(index, 1);
     }
     const activeEnemies = this.enemies.filter((enemy) => !enemy.removed && enemy.mode !== "dead");
-    const roundSpawn = advanceRoundSpawn(activeEnemies.length, this.spawnClock, capped);
-    this.spawnClock = roundSpawn.spawnClock;
-    if (roundSpawn.shouldSpawn && this.enemyCharacterCursor < enemyCharacterKeys.length) this.spawnEnemy();
-    if (this.killCount >= enemyCharacterKeys.length && activeEnemies.length === 0) this.finishRun("victory");
-    this.comboDecay -= capped;
-    if (this.comboDecay <= 0) this.combo = 0;
+    if (!playerFallen) {
+      const roundSpawn = advanceRoundSpawn(
+        activeEnemies.length,
+        this.spawnClock,
+        capped,
+        this.roundTransitionStartedThisStep,
+      );
+      this.spawnClock = roundSpawn.spawnClock;
+      if (roundSpawn.shouldSpawn && this.enemyCharacterCursor < enemyCharacterKeys.length) this.spawnEnemy();
+      // A dead fighter stays in the list until its fall completes. Waiting for
+      // removal keeps the final result from freezing the last animation.
+      if (this.killCount >= enemyCharacterKeys.length && this.enemies.length === 0) this.finishRun("victory");
+    }
     this.cameraShake = Math.max(0, this.cameraShake - capped * 3.8);
     this.updateCamera(capped);
     this.emitHud(capped);
@@ -425,27 +492,27 @@ export class GameWorld {
     const playerFocus = this.player.root.position.add(new Vector3(0, 1.45, 0));
     const focus = playerFocus.add(playerForward.scale(1.15));
     const rig = fixedThirdPersonRig(this.player.root.rotation.y);
+    let desiredFocus = focus;
+    let desiredRadius = rig.radius;
+    let lockFocus: Vector3 | null = null;
     if (this.lockTarget) {
       const enemyFocus = this.lockTarget.root.position.add(new Vector3(0, 1.25, 0));
-      const lockFocus = Vector3.Lerp(focus, enemyFocus, 0.35);
+      lockFocus = Vector3.Lerp(focus, enemyFocus, 0.35);
       const fighterDistance = Vector3.Distance(this.player.root.position, this.lockTarget.root.position);
       const aspect = this.scene.getEngine().getRenderWidth() / Math.max(1, this.scene.getEngine().getRenderHeight());
-      const desiredRadius = lockCameraRadius(fighterDistance, aspect);
-      this.camera.target = Vector3.Lerp(this.camera.target, lockFocus, clamp(delta * 10, 0, 1));
-      this.camera.radius += (desiredRadius - this.camera.radius) * clamp(delta * 8, 0, 1);
-      this.camera.alpha = lerpAngle(this.camera.alpha, rig.alpha + this.cameraOrbitOffset, clamp(delta * 10, 0, 1));
-      this.camera.beta += (this.cameraBeta - this.camera.beta) * clamp(delta * 10, 0, 1);
+      desiredFocus = lockFocus;
+      desiredRadius = lockCameraRadius(fighterDistance, aspect);
       this.lockAuditClock -= delta;
-      if (this.lockAuditClock <= 0 && this.input.isDemo && runtimeFlags.lockAudit) {
-        this.lockAuditClock = 0.5;
-        console.info("[LockAudit] camera lockOn=true target=%s base=player-back orbitOffset=%s beta=%s radius=%s cameraTarget=(%s,%s,%s) lockFocus=(%s,%s,%s)", this.lockTarget.variant, this.cameraOrbitOffset.toFixed(3), this.camera.beta.toFixed(3), this.camera.radius.toFixed(2), this.camera.target.x.toFixed(2), this.camera.target.y.toFixed(2), this.camera.target.z.toFixed(2), lockFocus.x.toFixed(2), lockFocus.y.toFixed(2), lockFocus.z.toFixed(2));
-        window.dispatchEvent(new CustomEvent("arena-lock-audit", { detail: { lockOn: true, target: this.lockTarget.variant, orbitOffset: this.cameraOrbitOffset, beta: this.camera.beta, radius: this.camera.radius, cameraTarget: this.camera.target.clone(), lockFocus } }));
-      }
-    } else {
-      this.camera.target = Vector3.Lerp(this.camera.target, focus, clamp(delta * 10, 0, 1));
-      this.camera.radius += (rig.radius - this.camera.radius) * clamp(delta * 10, 0, 1);
-      this.camera.alpha = lerpAngle(this.camera.alpha, rig.alpha + this.cameraOrbitOffset, clamp(delta * 10, 0, 1));
-      this.camera.beta += (this.cameraBeta - this.camera.beta) * clamp(delta * 10, 0, 1);
+    }
+    const angleBlend = clamp(delta * 10, 0, 1);
+    this.camera.target = Vector3.Lerp(this.camera.target, desiredFocus, angleBlend);
+    this.camera.radius += (desiredRadius - this.camera.radius) * clamp(delta * 8, 0, 1);
+    this.camera.alpha = lerpAngle(this.camera.alpha, rig.alpha + this.cameraOrbitOffset, angleBlend);
+    this.camera.beta += (this.cameraBeta - this.camera.beta) * angleBlend;
+    if (this.lockTarget && lockFocus && this.lockAuditClock <= 0 && this.input.isDemo && runtimeFlags.lockAudit) {
+      this.lockAuditClock = 0.5;
+      console.info("[LockAudit] camera lockOn=true target=%s base=player-back orbitOffset=%s beta=%s radius=%s cameraTarget=(%s,%s,%s) lockFocus=(%s,%s,%s)", this.lockTarget.variant, this.cameraOrbitOffset.toFixed(3), this.camera.beta.toFixed(3), this.camera.radius.toFixed(2), this.camera.target.x.toFixed(2), this.camera.target.y.toFixed(2), this.camera.target.z.toFixed(2), lockFocus.x.toFixed(2), lockFocus.y.toFixed(2), lockFocus.z.toFixed(2));
+      window.dispatchEvent(new CustomEvent("arena-lock-audit", { detail: { lockOn: true, target: this.lockTarget.variant, orbitOffset: this.cameraOrbitOffset, beta: this.camera.beta, radius: this.camera.radius, cameraTarget: this.camera.target.clone(), lockFocus } }));
     }
     if (this.cameraShake > 0 && this.screenShakeScale > 0) {
       this.camera.inertialAlphaOffset += Math.sin(this.elapsed * 63) * this.cameraShake * 0.006 * this.screenShakeScale;
@@ -531,7 +598,7 @@ export class GameWorld {
       const right = new Vector3(forward.z, 0, -forward.x);
       const hitRadius = enemy.targetRadius(target);
       if (Math.abs(offset.y) > hitRadius || Math.abs(Vector3.Dot(horizontal, right)) > hitRadius) continue;
-      if (this.player.isAttackClashActive() && enemy.isAttackClashActive()) {
+      if (this.player.isAttackClashActive() && enemy.isAttackClashActive(this.currentStepDelta)) {
         enemy.cancelAttackForClash();
         this.requestAttackClash();
         if (!clashTriggered) {
@@ -543,9 +610,9 @@ export class GameWorld {
       const resolved = enemy.takeTargetedDamage(damage, direction.scale(knockback), target, move);
       this.session.recordHit(resolved, move?.name ?? `${sound}-${target}`);
       const impactKind = resolved.location === "heart" ? "heart" : resolved.location === "head" ? "head" : damage > 2 ? "heavy" : "light";
-      this.spawnEffect(targetPoint, impactKind);
-      this.audio.playHit(resolved.location, sound === "heavy" ? 1.24 : 0.92);
-      this.haptics.triggerHit(resolved.location);
+      safeRun(() => this.spawnEffect(targetPoint, impactKind));
+      safeRun(() => this.audio.playHit(resolved.location, sound === "heavy" ? 1.24 : 0.92));
+      safeRun(() => this.haptics.triggerHit(resolved.location));
       this.notify(
         target === "heart" && !resolved.heartConfirmed
           ? "心臓はまだ狙えない・胴体命中"
@@ -561,8 +628,6 @@ export class GameWorld {
       hitCount += 1;
     }
     if (hitCount > 0) {
-      this.combo += hitCount;
-      this.comboDecay = 2.2;
       this.cameraShake = Math.min(1, this.cameraShake + 0.35 + hitCount * 0.05);
       this.player.addRage(hitCount * (damage > 2 ? 10 : 6));
     }
@@ -574,7 +639,7 @@ export class GameWorld {
   }
 
   start() {
-    this.audio.unlock();
+    safeRun(() => this.audio.unlock());
     if (this.started || this.startRequested) return;
     this.startRequested = true;
     if (!this.assetsPrepared) {
@@ -641,6 +706,7 @@ export class GameWorld {
     }
     this.proceduralFallbackActive = true;
     console.warn("Arena render recovered with procedural fighter presentation", error);
+    this.characters.forceProceduralFallback();
     this.player.forceProceduralFallback();
     this.enemies.forEach((enemy) => enemy.forceProceduralFallback());
     this.notify("3D表示を簡易表示へ切り替えました", 2.4);
@@ -707,7 +773,7 @@ export class GameWorld {
     const pans = [-1, -0.5, 0, 0.5, 1, -0.25];
     variants.forEach((variant, index) => {
       const pan = pans[index];
-      this.audio.playEnemyEntry(variant, 0.82, pan);
+      safeRun(() => this.audio.playEnemyEntry(variant, 0.82, pan));
       this.recordEnemyEntryRoar(variant, pan);
     });
   }
@@ -732,19 +798,20 @@ export class GameWorld {
   }
 
   triggerAttackClash(position: Vector3) {
-    this.haptics.trigger("clash");
-    this.audio.playClash(1.15);
+    const comboBefore = this.session.score.combo;
     this.session.recordClash();
+    safeRun(() => this.haptics.trigger("clash"));
+    safeRun(() => this.audio.playClash(1.15));
     if (this.input.isDemo && runtimeFlags.clashAudit) {
-      const comboBefore = this.combo;
+      const comboAfter = this.session.score.combo;
       const rageBefore = this.player.rage;
-      console.info("[ClashAudit] ATTACK CLASH — CANCEL! damage=0 playerHealth=%s enemyDamage=0 comboBefore=%s comboAfter=%s rageBefore=%s rageAfter=%s", Math.ceil(this.player.health), comboBefore, this.combo, Math.ceil(rageBefore), Math.ceil(this.player.rage));
-      window.dispatchEvent(new CustomEvent("arena-attack-clash", { detail: { damage: 0, playerHealth: this.player.health, enemyDamage: 0, comboBefore, comboAfter: this.combo, rageBefore, rageAfter: this.player.rage } }));
+      console.info("[ClashAudit] ATTACK CLASH — CANCEL! damage=0 playerHealth=%s enemyDamage=0 comboBefore=%s comboAfter=%s rageBefore=%s rageAfter=%s", Math.ceil(this.player.health), comboBefore, comboAfter, Math.ceil(rageBefore), Math.ceil(this.player.rage));
+      window.dispatchEvent(new CustomEvent("arena-attack-clash", { detail: { damage: 0, playerHealth: this.player.health, enemyDamage: 0, comboBefore, comboAfter, rageBefore, rageAfter: this.player.rage } }));
     }
     this.slowMotionTime = Math.max(this.slowMotionTime, 0.16);
     this.addCameraShake(0.62);
     this.player.routeLabel = "ATTACK CLASH — CANCEL!";
-    this.spawnEffect(position.add(new Vector3(0, 1.05, 0)), "clash");
+    safeRun(() => this.spawnEffect(position.add(new Vector3(0, 1.05, 0)), "clash"));
   }
 
   recordEnemyEntryRoar(variant: EnemyCharacterKey, pan: number) {
@@ -760,11 +827,11 @@ export class GameWorld {
   }
 
   onEnemyDefeated(enemy: BarbarianEnemy) {
-    this.haptics.trigger("heavy");
+    this.roundTransitionStartedThisStep = true;
+    // Commit progress before optional presentation. A sound, vibration,
+    // effect, or preload failure must not erase a defeated round.
     this.killCount += 1;
     this.session.recordEnemyDefeat(this.killCount - 1, enemy.scoreMultiplier());
-    this.combo += 1;
-    this.comboDecay = 2.4;
     this.player.addRage(14);
     const hasNext = this.killCount < enemyCharacterKeys.length;
     this.spawnClock = hasNext ? this.challengeDuration : 0;
@@ -779,7 +846,8 @@ export class GameWorld {
       this.taunt = enemyPresentations[nextVariant].taunt;
       void this.characters.preload(nextVariant);
     }
-    this.spawnEffect(enemy.root.position.add(new Vector3(0, 0.4, 0)), "heavy");
+    safeRun(() => this.haptics.trigger("heavy"));
+    safeRun(() => this.spawnEffect(enemy.root.position.add(new Vector3(0, 0.4, 0)), "heavy"));
   }
 
   finishRun(reason: "victory" | "defeat" | "retired") {
@@ -787,8 +855,8 @@ export class GameWorld {
     this.completed = true;
     this.paused = false;
     this.result = this.session.finish(reason, this.player.health, this.player.dignity.value, Math.min(6, this.killCount + 1));
-    this.audio.playResult(reason, 1.12);
-    this.haptics.trigger(reason === "victory" ? "victory" : "defeat");
+    safeRun(() => this.audio.playResult(reason, 1.12));
+    safeRun(() => this.haptics.trigger(reason === "victory" ? "victory" : "defeat"));
     this.emitHud(1);
   }
 
@@ -797,32 +865,32 @@ export class GameWorld {
   }
 
   triggerJustGuard(position: Vector3) {
-    this.haptics.trigger("justGuard");
-    this.audio.playJustGuard(1.1);
     this.session.recordJustGuard();
+    safeRun(() => this.haptics.trigger("justGuard"));
+    safeRun(() => this.audio.playJustGuard(1.1));
     if (this.input.isDemo && runtimeFlags.combatAudit) console.info("[CombatAudit] just guard started");
     this.slowMotionTime = Math.max(this.slowMotionTime, 0.18);
     this.addCameraShake(0.72);
-    this.spawnEffect(position.add(new Vector3(0, 1.2, 0)), "guard");
+    safeRun(() => this.spawnEffect(position.add(new Vector3(0, 1.2, 0)), "guard"));
   }
 
   triggerRageBurst(position: Vector3) {
-    this.haptics.trigger("rage");
-    this.audio.playRage(1.35);
+    safeRun(() => this.haptics.trigger("rage"));
+    safeRun(() => this.audio.playRage(1.35));
     this.slowMotionTime = Math.max(this.slowMotionTime, 0.12);
     this.addCameraShake(1.05);
-    this.spawnEffect(position.add(new Vector3(0, 0.28, 0)), "heavy");
-    this.burstRageText(position.add(new Vector3(0, 1.1, 0)), 6, 1.24);
+    safeRun(() => this.spawnEffect(position.add(new Vector3(0, 0.28, 0)), "heavy"));
+    safeRun(() => this.burstRageText(position.add(new Vector3(0, 1.1, 0)), 6, 1.24));
   }
 
   triggerDignityLoss(position: Vector3, playerSide: boolean) {
     this.slowMotionTime = Math.max(this.slowMotionTime, 0.22);
     this.addCameraShake(0.8);
-    this.audio.playDignityLoss(0.95);
-    this.haptics.triggerDignityLoss();
+    safeRun(() => this.audio.playDignityLoss(0.95));
+    safeRun(() => this.haptics.triggerDignityLoss());
     this.camera.radius = Math.max(this.camera.lowerRadiusLimit ?? 7, this.camera.radius - 0.9);
     this.notify(playerSide ? "尊厳喪失・怒気獲得上昇" : "敵の尊厳を奪った", 1.65);
-    this.spawnEffect(position.add(new Vector3(0, 2.05, 0)), "head");
+    safeRun(() => this.spawnEffect(position.add(new Vector3(0, 2.05, 0)), "head"));
   }
 
   burstRageText(position: Vector3, count: number, scale = 1) {
@@ -925,16 +993,16 @@ export class GameWorld {
     window.removeEventListener("arena-auto-pause", this.onAutoPause);
     window.removeEventListener("arena-audio-settings", this.onAudioSettings);
     window.removeEventListener("arena-haptics-settings", this.onHapticsSettings);
-    this.input.dispose();
-    this.effects.forEach((effect) => effect.dispose());
-    this.effectPool.forEach((effects) => effects.forEach((effect) => effect.dispose()));
+    safeRun(() => this.input.dispose());
+    this.effects.forEach((effect) => safeRun(() => effect.dispose()));
+    this.effectPool.forEach((effects) => effects.forEach((effect) => safeRun(() => effect.dispose())));
     this.effectPool.clear();
-    this.rageTexts.forEach((effect) => effect.dispose());
-    this.enemies.forEach((enemy) => enemy.dispose());
-    this.player.dispose();
-    this.characters.dispose();
-    this.audio.dispose();
-    this.materials.dispose();
+    this.rageTexts.forEach((effect) => safeRun(() => effect.dispose()));
+    this.enemies.forEach((enemy) => safeRun(() => enemy.dispose()));
+    safeRun(() => this.player.dispose());
+    safeRun(() => this.characters.dispose());
+    safeRun(() => this.audio.dispose());
+    safeRun(() => this.materials.dispose());
   }
 }
 
@@ -1023,7 +1091,7 @@ class ArenaMaterials {
   }
 
   dispose() {
-    this.owned.forEach((material) => material.dispose());
+    this.owned.forEach((material) => safeRun(() => material.dispose()));
   }
 }
 
@@ -1034,6 +1102,8 @@ class Player {
   private readonly weapon: Mesh;
   private readonly shoulder: Mesh;
   private readonly fallbackMeshes: Mesh[] = [];
+  private readonly fallbackHeadMeshes: Mesh[] = [];
+  private readonly poopFallbackMeshes: Mesh[] = [];
   private characterVisual: TransformNode | null = null;
   private characterAnimator: CharacterAnimator | null = null;
   mode: PlayerMode = "idle";
@@ -1059,6 +1129,8 @@ class Player {
   private poopTransformed = false;
   private dustClock = 0;
   private proceduralFallback = false;
+  private visualRevision = 0;
+  private fallTimer = 0;
 
   constructor(private readonly world: GameWorld, position: Vector3) {
     this.root = new TransformNode("blockyPlayer", world.scene);
@@ -1086,6 +1158,14 @@ class Player {
     head.position.y = 1.9;
     head.material = materials.playerStone;
     this.fallbackMeshes.push(head);
+    this.fallbackHeadMeshes.push(head);
+    this.poopFallbackMeshes.push(...createProceduralPoopHead(
+      scene,
+      this.root,
+      materials.enemyLeather,
+      "playerPoopFallback",
+      1.72,
+    ));
     this.shoulder = MeshBuilder.CreateBox("playerShoulder", { width: 1.18, height: 0.3, depth: 0.62 }, scene);
     this.shoulder.parent = this.root;
     this.shoulder.position.y = 1.55;
@@ -1109,7 +1189,12 @@ class Player {
     this.weapon.position.set(0, -1.0, 0.07);
     this.weapon.material = materials.playerBronze;
     this.fallbackMeshes.push(this.weapon);
+    const visualRevision = ++this.visualRevision;
     world.characters.attach("goose", this.root, 0.84, (visual, animator) => {
+      if (this.proceduralFallback || this.root.isDisposed() || visualRevision !== this.visualRevision) {
+        animator.dispose();
+        return;
+      }
       this.characterVisual = visual;
       this.characterAnimator = animator;
       this.playCharacterMotion("idle", true);
@@ -1130,6 +1215,7 @@ class Player {
       return;
     }
     if (this.mode === "fallen") {
+      this.fallTimer = Math.max(0, this.fallTimer - delta);
       this.root.rotation.z = Math.min(1.35, this.root.rotation.z + delta * 2.8);
       this.playCharacterMotion("dead");
       return;
@@ -1169,9 +1255,13 @@ class Player {
       this.attack = null;
       this.beginGuard();
     }
-    const heavyChainOpen = this.attack?.kind === "light"
-      && this.attack.time >= this.scaledMoveTime(this.attack.move.chainOpen)
-      && this.attack.time <= this.scaledMoveTime(this.attack.move.chainClose);
+    const activeLightAttack = this.attack?.kind === "light" ? this.attack : null;
+    while (activeLightAttack && shouldDiscardExtraWeak(activeLightAttack.stage, this.world.input.peekAttack())) {
+      if (!this.world.input.consumeAttack("light")) break;
+    }
+    const heavyChainOpen = activeLightAttack
+      && activeLightAttack.time >= this.scaledMoveTime(activeLightAttack.move.chainOpen)
+      && activeLightAttack.time <= this.scaledMoveTime(activeLightAttack.move.chainClose);
     const heavyAcceptable = this.counterWindow > 0 && !this.attack && this.mode !== "dodge"
       || heavyChainOpen
       || !this.attack && this.mode !== "dodge";
@@ -1185,9 +1275,10 @@ class Player {
       }
     }
     if (this.world.input.isDemo && this.counterWindow > 0 && !this.attack && this.mode !== "dodge") this.beginCounter();
-    const lightChainOpen = this.attack?.kind === "light"
-      && this.attack.time >= this.scaledMoveTime(this.attack.move.chainOpen)
-      && this.attack.time <= this.scaledMoveTime(this.attack.move.chainClose);
+    const lightChainOpen = Boolean(activeLightAttack
+      && canQueueWeakFollowup(activeLightAttack.stage)
+      && activeLightAttack.time >= this.scaledMoveTime(activeLightAttack.move.chainOpen)
+      && activeLightAttack.time <= this.scaledMoveTime(activeLightAttack.move.chainClose));
     if ((lightChainOpen || !this.attack && this.mode !== "dodge") && this.world.input.peekAttack() === "light" && this.world.input.consumeAttack("light")) {
       if (lightChainOpen && this.attack?.kind === "light") {
         this.attack.queued = "light";
@@ -1198,6 +1289,7 @@ class Player {
 
     let move = this.world.input.movement();
     let demoTarget: BarbarianEnemy | undefined;
+    let demoDirection: Vector3 | null = null;
     if (this.world.input.isDemo) {
       demoTarget = this.world.enemies
         .filter((enemy) => !enemy.removed && enemy.mode !== "dead")
@@ -1205,7 +1297,12 @@ class Player {
       if (demoTarget) {
         const toward = demoTarget.root.position.subtract(this.root.position);
         const distance = Math.hypot(toward.x, toward.z);
-        move = distance > 2.7 ? new Vector2(toward.x / distance, toward.z / distance) : Vector2.Zero();
+        if (distance > 2.7) {
+          demoDirection = new Vector3(toward.x / distance, 0, toward.z / distance);
+          move = new Vector2(0, 1);
+        } else {
+          move = Vector2.Zero();
+        }
       }
     }
     if (this.mode === "guard") {
@@ -1229,14 +1326,14 @@ class Player {
     } else if (!this.attack) {
       const moving = move.length() > 0.05;
       if (moving) {
-        const direction = this.world.movementDirection(move);
+        const direction = demoDirection ?? this.world.movementDirection(move);
         const desiredYaw = Math.atan2(direction.x, direction.z);
         this.root.rotation.y = lerpAngle(this.root.rotation.y, desiredYaw, clamp(delta * 10, 0, 1));
         this.root.position.addInPlace(direction.scale(delta * 7.4));
         this.mode = "move";
         if (this.dustClock <= 0) {
           this.dustClock = 0.2;
-          this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.08, 0)), "dust");
+          safeRun(() => this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.08, 0)), "dust"));
         }
       } else {
         if (this.world.input.isDemo && demoTarget) {
@@ -1262,11 +1359,11 @@ class Player {
     } else {
       if (this.proceduralFallback) {
         this.characterVisual?.setEnabled(false);
-        this.fallbackMeshes.forEach((mesh) => { mesh.setEnabled(true); mesh.isVisible = true; });
+        this.setFallbackPresentation(true);
       } else {
         this.characterVisual?.setEnabled(Boolean(this.characterAnimator));
         const visualReady = Boolean(this.characterAnimator && isCharacterVisualRenderable(this.characterVisual));
-        this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !visualReady; });
+        this.setFallbackPresentation(!visualReady);
       }
     }
   }
@@ -1279,24 +1376,36 @@ class Player {
   private playCharacterMotion(motion: CharacterMotion, loop = false, speedRatio = 1) {
     if (this.proceduralFallback) {
       this.characterVisual?.setEnabled(false);
-      this.fallbackMeshes.forEach((mesh) => { mesh.setEnabled(true); mesh.isVisible = true; });
+      this.setFallbackPresentation(true);
       return;
     }
     const played = this.characterAnimator ? this.characterAnimator.play(motion, loop, speedRatio) : false;
     this.characterVisual?.setEnabled(Boolean(this.characterAnimator && played));
     const visualReady = Boolean(this.characterAnimator && played && isCharacterVisualRenderable(this.characterVisual));
-    this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !visualReady; });
+    this.setFallbackPresentation(!visualReady);
+  }
+
+  private setFallbackPresentation(visible: boolean) {
+    this.fallbackMeshes.forEach((mesh) => {
+      mesh.setEnabled(true);
+      mesh.isVisible = visible && (!this.poopTransformed || !this.fallbackHeadMeshes.includes(mesh));
+    });
+    this.poopFallbackMeshes.forEach((mesh) => {
+      mesh.setEnabled(true);
+      mesh.isVisible = visible && this.poopTransformed;
+    });
   }
 
   forceProceduralFallback() {
     this.proceduralFallback = true;
+    this.visualRevision += 1;
     // Remove imported animation groups and their instance from the render
     // list as well as disabling them. This matters when the failed shader or
     // skinning path is what caused the mobile render exception.
-    this.characterAnimator?.dispose();
+    safeRun(() => this.characterAnimator?.dispose());
     this.characterAnimator = null;
     this.characterVisual = null;
-    this.fallbackMeshes.forEach((mesh) => { mesh.setEnabled(true); mesh.isVisible = true; });
+    this.setFallbackPresentation(true);
   }
 
   private updateAnimationTest(delta: number) {
@@ -1348,7 +1457,7 @@ class Player {
       sequence: this.attackSequence++,
     });
     const duration = this.characterAnimator?.durationNamed(move.name) ?? move.duration;
-    const hitAt = duration * (move.hitStart / move.duration);
+    const hitAt = duration * Math.max(move.hitStart / move.duration, ATTACK_CLASH_PROGRESS_MIN);
     this.attack = {
       kind,
       stage: kind === "light" ? nextStage : stage,
@@ -1377,14 +1486,14 @@ class Player {
       this.root.rotation.y = Math.atan2(toward.x, toward.z);
     }
     this.characterAnimator?.playNamed(move.name, false, 1, true);
-    this.world.audio.play(kind === "heavy" ? "heavy" : "swing", kind === "heavy" ? 1.05 : 0.72);
-    if (kind === "heavy") this.world.haptics.triggerStrong();
+    safeRun(() => this.world.audio.play(kind === "heavy" ? "heavy" : "swing", kind === "heavy" ? 1.05 : 0.72));
+    if (kind === "heavy") safeRun(() => this.world.haptics.triggerStrong());
   }
 
   private beginGuard() {
     this.mode = "guard";
     this.guardTime = 0.18;
-    this.justGuardTime = 0.145;
+    this.justGuardTime = JUST_GUARD_WINDOW_SECONDS;
     this.routeLabel = "GUARD — MEET THE BLOW";
   }
 
@@ -1396,7 +1505,7 @@ class Player {
     this.attack = { kind: "counter", stage: 0, time: 0, duration, hitAt: duration * (move.hitStart / move.duration), hitEndAt: duration * (move.hitEnd / move.duration), didHit: false, connected: false, queued: null, pulse: 0, move, target: this.aimTarget };
     this.mode = "counter";
     this.characterAnimator?.playNamed(move.name, false, 1.06, true);
-    this.world.audio.play("counter", 1.12);
+    safeRun(() => this.world.audio.play("counter", 1.12));
     this.routeLabel = "JUST GUARD · COUNTER";
   }
 
@@ -1465,8 +1574,9 @@ class Player {
           this.attack.move,
         );
         if (hit > 0) this.attack.connected = true;
-        this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.34, 0)), "heavy");
-        this.world.burstRageText(this.root.position.add(new Vector3(0, 1.1, 0)), finalPulse ? 4 : 2, 1.12 + this.attack.pulse * 0.12);
+        const rageTextScale = 1.12 + this.attack.pulse * 0.12;
+        safeRun(() => this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.34, 0)), "heavy"));
+        safeRun(() => this.world.burstRageText(this.root.position.add(new Vector3(0, 1.1, 0)), finalPulse ? 4 : 2, rageTextScale));
         this.world.addCameraShake(0.66 + hit * 0.06);
         this.attack.pulse += 1;
       }
@@ -1491,18 +1601,18 @@ class Player {
       }
       if (isFinisher || isCounter) {
         this.world.addCameraShake((isCounter ? 0.9 : 0.58) + hit * 0.1);
-        this.world.spawnEffect(this.root.position.add(forward.scale(2.2)).add(new Vector3(0, 0.3, 0)), "heavy");
+        safeRun(() => this.world.spawnEffect(this.root.position.add(forward.scale(2.2)).add(new Vector3(0, 0.3, 0)), "heavy"));
       }
       if (hit === 0) {
         this.world.session.recordMiss();
-        this.world.audio.playWhiff(this.attack.kind === "heavy" || isCounter ? 1.15 : 0.82);
-        this.world.spawnEffect(this.root.position.add(forward.scale(2.0)).add(new Vector3(0, 1.1, 0)), "miss");
+        safeRun(() => this.world.audio.playWhiff(this.attack?.kind === "heavy" || isCounter ? 1.15 : 0.82));
+        safeRun(() => this.world.spawnEffect(this.root.position.add(forward.scale(2.0)).add(new Vector3(0, 1.1, 0)), "miss"));
       }
     }
     const recovery = isMusou ? 0 : this.attack.connected ? this.attack.move.hitRecovery : this.attack.move.whiffRecovery;
     if (this.attack.time >= this.attack.duration + recovery) {
       const queued = this.attack.queued;
-      const chain = queued === "light" && this.attack.kind === "light" && this.attack.stage < 3;
+      const chain = queued === "light" && this.attack.kind === "light" && this.attack.stage < 2;
       const finisher = queued === "heavy" && this.attack.kind === "light";
       const nextStage = this.attack.stage + 1;
       const previousStage = this.attack.stage;
@@ -1553,15 +1663,21 @@ class Player {
     this.routeLabel = "ATTACK CLASH — CANCEL!";
   }
 
+  clearQueuedAttack() {
+    if (this.attack) this.attack.queued = null;
+  }
+
   takeDamage(amount: number, from: Vector3, attacker?: BarbarianEnemy, hitLocation: HitLocation = "torso", dignityDamage = hitLocation === "head" ? 14 : 3) {
     if (this.mode === "dodge" || this.mode === "fallen" || this.hurtCooldown > 0) return "evade" as const;
     if (this.mode === "guard") {
       if (this.justGuardTime > 0) {
         this.guardTime = 0;
         this.justGuardTime = 0;
-        this.counterWindow = 0.72;
+        this.counterWindow = COUNTER_WINDOW_SECONDS;
         this.mode = "idle";
-        this.addRage(this.dignity.value <= 0 ? 34 : 26);
+        // Broken dignity already receives the shared 1.25 comeback multiplier.
+        // 27.2 × 1.25 = 34, avoiding a second accidental multiplier.
+        this.addRage(this.dignity.value <= 0 ? 27.2 : 26);
         this.routeLabel = "JUST GUARD — COUNTER!";
         this.world.triggerJustGuard(this.root.position);
         attacker?.openToCounter();
@@ -1573,27 +1689,27 @@ class Player {
         this.guardTime = 0;
         this.justGuardTime = 0;
         this.routeLabel = "防御崩れ";
-        const brokenDamage = amount * 0.55;
-        this.health = Math.max(0, this.health - brokenDamage);
+        const brokenDamage = appliedDamage(this.health, amount * 0.55);
+        this.health -= brokenDamage;
         this.world.session.recordDamageTaken(brokenDamage);
         this.hurtCooldown = 0.45;
-        if (this.health <= 0) this.mode = "fallen";
+        if (this.health <= 0) this.enterFallen();
         return "hit" as const;
       }
-      const chipDamage = amount * 0.16;
-      this.health = Math.max(0, this.health - chipDamage);
+      const chipDamage = appliedDamage(this.health, amount * 0.16);
+      this.health -= chipDamage;
       this.world.session.recordDamageTaken(chipDamage);
       this.addRage(1);
-      this.world.haptics.trigger("guard");
-      this.world.audio.playDefense(0.72);
-      this.world.spawnEffect(this.root.position.add(new Vector3(0, 1.1, 0)), "guard");
+      safeRun(() => this.world.haptics.trigger("guard"));
+      safeRun(() => this.world.audio.playDefense(0.72));
+      safeRun(() => this.world.spawnEffect(this.root.position.add(new Vector3(0, 1.1, 0)), "guard"));
+      if (this.health <= 0) this.enterFallen();
       return "guard" as const;
     }
     this.hurtCooldown = 0.52;
-    this.world.haptics.trigger("hurt");
-    this.world.audio.playDamage(0.9);
-    this.health = Math.max(0, this.health - amount);
-    this.world.session.recordDamageTaken(amount);
+    const healthDamage = appliedDamage(this.health, amount);
+    this.health -= healthDamage;
+    this.world.session.recordDamageTaken(healthDamage);
     const beforeDignity = this.dignity.value;
     this.dignity = applyDignityDamage(this.dignity, dignityDamage);
     const lostDignity = beforeDignity - this.dignity.value;
@@ -1601,9 +1717,26 @@ class Player {
     if (isDignityLost(this.dignity) && !this.poopTransformed) this.transformToPoop();
     this.root.position.addInPlace(from.scale(0.28));
     this.world.addCameraShake(0.5);
-    this.world.spawnEffect(this.root.position.add(new Vector3(0, 1.1, 0)), "hurt");
-    if (this.health <= 0) this.mode = "fallen";
+    safeRun(() => this.world.haptics.trigger("hurt"));
+    safeRun(() => this.world.audio.playDamage(0.9));
+    safeRun(() => this.world.spawnEffect(this.root.position.add(new Vector3(0, 1.1, 0)), "hurt"));
+    if (this.health <= 0) this.enterFallen();
     return "hit" as const;
+  }
+
+  private enterFallen() {
+    if (this.mode === "fallen") return;
+    this.attack = null;
+    this.mode = "fallen";
+    this.fallTimer = 0.82;
+    this.counterWindow = 0;
+    this.guardTime = 0;
+    this.justGuardTime = 0;
+    this.world.input.resetHeldInput();
+  }
+
+  defeatPresentationComplete() {
+    return this.mode === "fallen" && this.fallTimer <= 0;
   }
 
   addRage(amount: number) {
@@ -1620,18 +1753,28 @@ class Player {
     this.world.session.recordPoopTransformation();
     this.world.triggerDignityLoss(this.root.position, true);
     const previousAnimator = this.characterAnimator;
+    this.characterVisual?.setEnabled(false);
+    this.characterVisual = null;
+    this.characterAnimator = null;
+    previousAnimator?.dispose();
+    this.setFallbackPresentation(true);
+    const visualRevision = ++this.visualRevision;
     this.world.characters.attach("poop", this.root, 0.84, (visual, animator) => {
+      if (this.proceduralFallback || this.root.isDisposed() || visualRevision !== this.visualRevision) {
+        animator.dispose();
+        return;
+      }
       this.characterVisual = visual;
       this.characterAnimator = animator;
       if (this.attack) animator.playNamed(this.attack.move.name, false, 1, true);
       else this.playCharacterMotion(this.mode === "fallen" ? "dead" : this.mode === "guard" ? "guard" : "idle", this.mode !== "fallen");
-      previousAnimator?.dispose();
     });
   }
 
   dispose() {
-    this.characterAnimator?.dispose();
-    this.root.dispose(false, false);
+    this.visualRevision += 1;
+    safeRun(() => this.characterAnimator?.dispose());
+    safeRun(() => this.root.dispose(false, false));
   }
 }
 
@@ -1653,6 +1796,8 @@ class BarbarianEnemy {
   private readonly weaponPivot: TransformNode;
   private readonly outlineMeshes: Mesh[] = [];
   private readonly fallbackMeshes: Mesh[] = [];
+  private readonly fallbackHeadMeshes: Mesh[] = [];
+  private readonly poopFallbackMeshes: Mesh[] = [];
   private characterVisual: TransformNode | null = null;
   private characterAnimator: CharacterAnimator | null = null;
   private outlineActive = false;
@@ -1673,6 +1818,7 @@ class BarbarianEnemy {
   private chargeTrailClock = 0;
   private feintUsed = false;
   private proceduralFallback = false;
+  private visualRevision = 0;
   private readonly heartMeshes: Mesh[] = [];
   private readonly hitMeshes: Record<HitLocation, Mesh[]> = { head: [], torso: [], heart: [] };
 
@@ -1717,21 +1863,32 @@ class BarbarianEnemy {
     head.parent = this.root;
     head.position.y = 2.25;
     head.material = materials.enemySkin;
+    this.fallbackHeadMeshes.push(head);
     this.hitMeshes.head.push(head);
     this.hitMeshes.torso.push(this.torso);
     const hair = MeshBuilder.CreateBox("barbarianMohawk", { width: 0.24, height: 0.16, depth: 0.56 }, scene);
     hair.parent = this.root;
     hair.position.set(0, 2.54, 0);
     hair.material = materials.enemyFur;
+    this.fallbackHeadMeshes.push(hair);
     const beard = MeshBuilder.CreateBox("barbarianBeard", { width: 0.36, height: 0.25, depth: 0.2 }, scene);
     beard.parent = this.root;
     beard.position.set(0, 2.1, -0.28);
     beard.material = materials.enemyFur;
+    this.fallbackHeadMeshes.push(beard);
     const braid = MeshBuilder.CreateCylinder("barbarianBraid", { height: 0.4, diameter: 0.13, tessellation: 6 }, scene);
     braid.parent = this.root;
     braid.position.set(0, 2.22, 0.35);
     braid.rotation.x = Math.PI / 2;
     braid.material = materials.enemyFur;
+    this.fallbackHeadMeshes.push(braid);
+    this.poopFallbackMeshes.push(...createProceduralPoopHead(
+      scene,
+      this.root,
+      materials.enemyLeather,
+      `${variant}PoopFallback`,
+      2.03,
+    ));
     this.armLeft = new TransformNode("barbarianArmLeft", scene);
     this.armLeft.parent = this.root;
     this.armLeft.position.set(-0.58, 1.62, 0);
@@ -1800,7 +1957,12 @@ class BarbarianEnemy {
     this.heartMeshes.push(this.torso);
     this.outlineMeshes.push(...this.root.getChildMeshes(false).filter((mesh): mesh is Mesh => mesh instanceof Mesh && mesh !== this.warningRing));
     this.fallbackMeshes.push(...this.outlineMeshes);
+    const visualRevision = ++this.visualRevision;
     world.characters.attach(this.variant, this.root, 0.82, (visual, animator) => {
+      if (this.proceduralFallback || this.root.isDisposed() || visualRevision !== this.visualRevision) {
+        animator.dispose();
+        return;
+      }
       this.characterVisual = visual;
       this.characterAnimator = animator;
       this.outlineMeshes.push(...visual.getChildMeshes(false).filter((mesh): mesh is Mesh => mesh instanceof Mesh));
@@ -1859,7 +2021,7 @@ class BarbarianEnemy {
       if (!this.entrySoundPlayed && (this.world.isStarted() || this.world.input.isDemo)) {
         this.entrySoundPlayed = true;
         const pan = this.world.entryPanFor(this.root.position);
-        this.world.audio.playEnemyEntry(this.variant, this.presentation.roarIntensity, pan);
+        safeRun(() => this.world.audio.playEnemyEntry(this.variant, this.presentation.roarIntensity, pan));
         this.world.recordEnemyEntryRoar(this.variant, pan);
       }
       this.playCharacterMotion(this.presentation.entryMotion, false, 0.82);
@@ -1882,7 +2044,7 @@ class BarbarianEnemy {
     if (distance > 0.01) this.root.rotation.y = lerpAngle(this.root.rotation.y, Math.atan2(flatToPlayer.x, flatToPlayer.z), clamp(delta * 5.2, 0, 1));
 
     if (this.mode === "approach") {
-      const engageDistance = this.variant === "rhinoceros" ? 10.5 : this.variant === "crocodile" ? 3.9 : this.variant === "hippopotamus" ? 3.35 : 2.75;
+      const engageDistance = enemyEngageDistance(this.variant);
       this.playCharacterMotion("move", true, 0.9 + this.balanceProfile.speedMultiplier * 0.18);
       if (distance > engageDistance) {
         const direction = flatToPlayer.normalize();
@@ -1926,10 +2088,12 @@ class BarbarianEnemy {
       this.timer -= delta;
       const strikeProgress = clamp(1 - this.timer / this.currentAttackDuration, 0, 1);
       this.weaponPivot.rotation.z = Math.sin(strikeProgress * Math.PI) * 1.7;
-      const hitFraction = this.currentAttackMove ? this.currentAttackMove.hitStart / this.currentAttackMove.duration : 0.52;
+      const hitFraction = this.currentAttackMove
+        ? Math.max(this.currentAttackMove.hitStart / this.currentAttackMove.duration, ATTACK_CLASH_PROGRESS_MIN)
+        : 0.52;
       if (!this.dealtDamage && strikeProgress >= hitFraction) {
         this.dealtDamage = true;
-        this.world.audio.play("heavy", 0.9);
+        safeRun(() => this.world.audio.play("heavy", 0.9));
         if (distance < this.attackRange()) {
           if (this.world.player.isAttackClashActive()) {
             this.world.player.cancelAttackForClash();
@@ -1962,13 +2126,19 @@ class BarbarianEnemy {
       this.root.position.addInPlace(this.chargeDirection.scale(delta * (this.health < this.maxHealth * 0.5 ? 11.6 : 10.2)));
       if (this.chargeTrailClock <= 0) {
         this.chargeTrailClock = 0.18;
-        this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.12, 0)), "miss");
+        safeRun(() => this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.12, 0)), "miss"));
       }
       const chargeDistance = Vector3.Distance(this.root.position, this.world.player.root.position);
       if (!this.dealtDamage && chargeDistance < 1.35) {
         this.dealtDamage = true;
         const toPlayerNow = this.world.player.root.position.subtract(this.root.position);
         toPlayerNow.y = 0;
+        if (this.world.player.isAttackClashActive()) {
+          this.world.player.cancelAttackForClash();
+          this.cancelAttackForClash();
+          this.world.triggerAttackClash(Vector3.Lerp(this.world.player.root.position, this.root.position, 0.5));
+          return;
+        }
         const outcome = this.world.player.takeDamage(
           DEFAULT_COMBAT_BALANCE.enemy.attackDamage * this.balanceProfile.damageMultiplier * 1.24,
           toPlayerNow.lengthSquared() > 0.01 ? toPlayerNow.normalize() : this.chargeDirection,
@@ -1977,6 +2147,7 @@ class BarbarianEnemy {
           this.dignityPressure("torso") * 1.4,
         );
         this.attackConnected = outcome !== "evade";
+        if (outcome === "just") return;
         if (this.attackConnected) {
           this.mode = "recover";
           this.timer = 1.05;
@@ -1989,7 +2160,7 @@ class BarbarianEnemy {
         this.timer = 2.65;
         this.openHeart(2.65, "壁へ激突・心臓露出");
         this.world.addCameraShake(0.85);
-        this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.3, 0)), "heavy");
+        safeRun(() => this.world.spawnEffect(this.root.position.add(new Vector3(0, 0.3, 0)), "heavy"));
         return;
       }
       if (this.timer <= 0) {
@@ -2014,7 +2185,7 @@ class BarbarianEnemy {
       if (!this.entrySoundPlayed && (this.world.isStarted() || this.world.input.isDemo)) {
         this.entrySoundPlayed = true;
         const pan = this.world.entryPanFor(this.root.position);
-        this.world.audio.playEnemyEntry(this.variant, this.presentation.roarIntensity, pan);
+        safeRun(() => this.world.audio.playEnemyEntry(this.variant, this.presentation.roarIntensity, pan));
         this.world.recordEnemyEntryRoar(this.variant, pan);
       }
       // Keep the challenger at a readable size during the countdown. The
@@ -2082,10 +2253,10 @@ class BarbarianEnemy {
     this.feintUsed = !shouldFeint;
     this.mode = "telegraph";
     this.warningRing.isVisible = true;
-    if (this.variant === "rhinoceros") this.world.audio.playRage(0.45);
-    else if (this.variant === "hippopotamus" || this.variant === "bear") this.world.audio.play("heavy", 0.52);
-    else if (this.variant === "crocodile") this.world.audio.playWhiff(0.55);
-    else this.world.audio.play("guard", 0.48);
+    if (this.variant === "rhinoceros") safeRun(() => this.world.audio.playRage(0.45));
+    else if (this.variant === "hippopotamus" || this.variant === "bear") safeRun(() => this.world.audio.play("heavy", 0.52));
+    else if (this.variant === "crocodile") safeRun(() => this.world.audio.playWhiff(0.55));
+    else safeRun(() => this.world.audio.play("guard", 0.48));
   }
 
   private beginStrike(flatToPlayer: Vector3) {
@@ -2112,7 +2283,7 @@ class BarbarianEnemy {
   private playCurrentAttack(restart: boolean, speedRatio = 1) {
     if (this.proceduralFallback) {
       this.characterVisual?.setEnabled(false);
-      this.fallbackMeshes.forEach((mesh) => { mesh.setEnabled(true); mesh.isVisible = true; });
+      this.setFallbackPresentation(true);
       return;
     }
     const played = this.currentAttackMove
@@ -2121,15 +2292,11 @@ class BarbarianEnemy {
     if (!played) this.playCharacterMotion("heavy", false, speedRatio);
     this.characterVisual?.setEnabled(Boolean(this.characterAnimator));
     const visualReady = Boolean(this.characterAnimator && isCharacterVisualRenderable(this.characterVisual));
-    this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !visualReady; });
+    this.setFallbackPresentation(!visualReady);
   }
 
   private attackRange() {
-    if (this.variant === "crocodile") return 4.25;
-    if (this.variant === "hippopotamus") return 3.75;
-    if (this.variant === "bear") return 3.35;
-    if (this.variant === "lion") return 3.15;
-    return DEFAULT_COMBAT_BALANCE.enemy.attackRange;
+    return enemyHitRange(this.variant);
   }
 
   private attackLocation(): HitLocation {
@@ -2227,9 +2394,14 @@ class BarbarianEnemy {
     this.health = Math.max(0, value);
   }
 
-  isAttackClashActive() {
+  isAttackClashActive(lookAheadSeconds = 0) {
     if ((this.mode !== "strike" && this.mode !== "charge") || this.dealtDamage) return false;
-    return isAttackClashWindow(clamp(1 - this.timer / this.currentAttackDuration, 0, 1));
+    // A charge is itself the active collision window. The ordinary animation
+    // fraction cannot reach 0.40 before a nearby rhinoceros makes contact.
+    if (this.mode === "charge") return true;
+    const progress = clamp(1 - this.timer / this.currentAttackDuration, 0, 1);
+    const lookAheadProgress = Math.max(0, lookAheadSeconds) / Math.max(0.08, this.currentAttackDuration);
+    return entersAttackClashWindow(progress, lookAheadProgress);
   }
 
   cancelAttackForClash() {
@@ -2243,6 +2415,7 @@ class BarbarianEnemy {
   }
 
   takeTargetedDamage(amount: number, knockback: Vector3, requestedLocation: HitLocation, move?: AttackMove) {
+    const phaseAtImpact = this.mode;
     const incoming = knockback.lengthSquared() > 0.001 ? knockback.normalizeToNew() : Vector3.Zero();
     const struckFromFront = incoming.lengthSquared() > 0 && Vector3.Dot(forwardFromYaw(this.root.rotation.y), incoming) < -0.28;
     const lionEvadesHead = this.variant === "lion" && requestedLocation === "head" && this.mode === "approach" && this.world.random() < 0.55;
@@ -2252,15 +2425,30 @@ class BarbarianEnemy {
     const healthMultiplier = move?.healthMultiplier[initial.location] ?? 1;
     const dignityMultiplier = move?.dignityMultiplier[initial.location] ?? 1;
     const rhinoFrontDefense = this.variant === "rhinoceros" && struckFromFront && this.heartOpenTime <= 0 && this.mode !== "stagger";
+    const crocodileGuard = crocodileGuardsHit(
+      this.variant,
+      phaseAtImpact,
+      struckFromFront,
+      this.heartOpenTime > 0,
+    );
+    const crocodileGuardBroken = crocodileGuard
+      && crocodileGuardBreaks(move, initial.location === "heart" && initial.heartConfirmed);
+    const crocodileHealthScale = crocodileGuard ? (crocodileGuardBroken ? 0.82 : 0.28) : 1;
+    const crocodileDignityScale = crocodileGuard ? (crocodileGuardBroken ? 0.9 : 0.35) : 1;
     const resolved = Object.freeze({
       ...initial,
-      damage: initial.damage * healthMultiplier * (rhinoFrontDefense ? 0.48 : 1),
-      dignityDamage: initial.dignityDamage * dignityMultiplier * (rhinoFrontDefense ? 0.7 : 1),
+      damage: initial.damage * healthMultiplier * (rhinoFrontDefense ? 0.48 : 1) * crocodileHealthScale,
+      dignityDamage: initial.dignityDamage * dignityMultiplier * (rhinoFrontDefense ? 0.7 : 1) * crocodileDignityScale,
     });
-    if (this.mode === "dead" || this.removed) return resolved;
-    const committedBearAttack = this.variant === "bear" && (this.mode === "telegraph" || this.mode === "strike") && resolved.damage < 10;
-    this.health = Math.max(0, this.health - resolved.damage);
-    this.dignity = applyDignityDamage(this.dignity, resolved.dignityDamage);
+    const applied = Object.freeze({
+      ...resolved,
+      damage: appliedDamage(this.health, resolved.damage),
+      dignityDamage: appliedDamage(this.dignity.value, resolved.dignityDamage),
+    });
+    if (this.mode === "dead" || this.removed) return applied;
+    const committedBearAttack = enemyAttackContinuesThroughHit(this.variant, phaseAtImpact, move);
+    this.health = Math.max(0, this.health - applied.damage);
+    this.dignity = applyDignityDamage(this.dignity, applied.dignityDamage);
     const knockbackResistance = this.variant === "hippopotamus" ? 0.22 : this.variant === "bear" ? 0.58 : 1;
     this.root.position.addInPlace(knockback.scale(knockbackResistance));
     if (isDignityLost(this.dignity) && !this.poopTransformed) this.transformToPoop();
@@ -2268,17 +2456,30 @@ class BarbarianEnemy {
       this.mode = "dead";
       this.timer = 0.52;
       this.warningRing.isVisible = false;
-      return resolved;
+      return applied;
     }
-    if (committedBearAttack) return resolved;
+    if (crocodileGuard) {
+      this.warningRing.isVisible = false;
+      if (crocodileGuardBroken) {
+        this.mode = "stagger";
+        this.timer = 1.15;
+        this.openHeart(1.15, "ワニの防御を崩した・心臓露出");
+      } else {
+        this.mode = "recover";
+        this.timer = 0.48;
+        this.world.notify("ワニが正面攻撃を防いだ", 0.65);
+      }
+      return applied;
+    }
+    if (committedBearAttack) return applied;
     this.mode = "stagger";
-    const majorStagger = resolved.location === "heart" || resolved.damage >= 10 || move?.power === "heavy";
-    this.timer = majorStagger ? 0.72 * resolved.staggerMultiplier : 0.22 * resolved.staggerMultiplier;
+    const majorStagger = applied.location === "heart" || applied.damage >= 10 || move?.power === "heavy";
+    this.timer = majorStagger ? 0.72 * applied.staggerMultiplier : 0.22 * applied.staggerMultiplier;
     if (majorStagger) this.openHeart(Math.max(0.85, this.timer), "大きくよろめいた・心臓露出");
-    if (resolved.location === "heart") this.heartOpenTime = Math.min(this.heartOpenTime, 0.5);
+    if (applied.location === "heart") this.heartOpenTime = Math.min(this.heartOpenTime, 0.5);
     this.warningRing.isVisible = false;
     this.torso.rotation.z = (this.world.random() > 0.5 ? 1 : -1) * 0.24;
-    return resolved;
+    return applied;
   }
 
   takeDamage(amount: number, knockback: Vector3) {
@@ -2299,7 +2500,17 @@ class BarbarianEnemy {
     this.poopTransformed = true;
     this.world.triggerDignityLoss(this.root.position, false);
     const previousAnimator = this.characterAnimator;
+    this.characterVisual?.setEnabled(false);
+    this.characterVisual = null;
+    this.characterAnimator = null;
+    previousAnimator?.dispose();
+    this.setFallbackPresentation(true);
+    const visualRevision = ++this.visualRevision;
     this.world.characters.attach("poop", this.root, 0.82, (visual, animator) => {
+      if (this.proceduralFallback || this.root.isDisposed() || visualRevision !== this.visualRevision) {
+        animator.dispose();
+        return;
+      }
       this.characterVisual = visual;
       this.characterAnimator = animator;
       this.heartMeshes.length = 0;
@@ -2307,7 +2518,6 @@ class BarbarianEnemy {
       this.registerVisualHitMeshes(visual);
       if (this.currentAttackMove && (this.mode === "strike" || this.mode === "charge")) animator.playNamed(this.currentAttackMove.name, false, 1, true);
       else this.playCharacterMotion(this.mode === "dead" ? "dead" : this.mode === "stagger" ? "hurt" : "idle", this.mode !== "dead" && this.mode !== "stagger");
-      previousAnimator?.dispose();
     });
   }
 
@@ -2340,30 +2550,54 @@ class BarbarianEnemy {
   private playCharacterMotion(motion: CharacterMotion, loop = false, speedRatio = 1) {
     if (this.proceduralFallback) {
       this.characterVisual?.setEnabled(false);
-      this.fallbackMeshes.forEach((mesh) => { mesh.setEnabled(true); mesh.isVisible = true; });
+      this.setFallbackPresentation(true);
       return;
     }
     const played = this.characterAnimator ? this.characterAnimator.play(motion, loop, speedRatio) : false;
     this.characterVisual?.setEnabled(Boolean(this.characterAnimator && played));
     const visualReady = Boolean(this.characterAnimator && played && isCharacterVisualRenderable(this.characterVisual));
-    this.fallbackMeshes.forEach((mesh) => { mesh.isVisible = !visualReady; });
+    this.setFallbackPresentation(!visualReady);
+  }
+
+  private setFallbackPresentation(visible: boolean) {
+    this.fallbackMeshes.forEach((mesh) => {
+      mesh.setEnabled(true);
+      mesh.isVisible = visible && (!this.poopTransformed || !this.fallbackHeadMeshes.includes(mesh));
+    });
+    this.poopFallbackMeshes.forEach((mesh) => {
+      mesh.setEnabled(true);
+      mesh.isVisible = visible && this.poopTransformed;
+    });
   }
 
   forceProceduralFallback() {
     this.proceduralFallback = true;
-    this.characterAnimator?.dispose();
+    this.visualRevision += 1;
+    safeRun(() => this.characterAnimator?.dispose());
     this.characterAnimator = null;
     this.characterVisual = null;
-    this.fallbackMeshes.forEach((mesh) => { mesh.setEnabled(true); mesh.isVisible = true; });
+    this.setFallbackPresentation(true);
   }
 
   get requiresJustGuard() {
-    return this.mode === "strike" && this.timer < 0.22 && !this.dealtDamage;
+    if (this.dealtDamage) return false;
+    if (this.mode === "charge") {
+      const speed = this.health < this.maxHealth * 0.5 ? 11.6 : 10.2;
+      return Vector3.Distance(this.root.position, this.world.player.root.position) <= 1.35 + speed * 0.18;
+    }
+    if (this.mode !== "strike") return false;
+    const progress = clamp(1 - this.timer / this.currentAttackDuration, 0, 1);
+    const hitFraction = this.currentAttackMove
+      ? Math.max(this.currentAttackMove.hitStart / this.currentAttackMove.duration, ATTACK_CLASH_PROGRESS_MIN)
+      : 0.52;
+    const secondsUntilImpact = (hitFraction - progress) * this.currentAttackDuration;
+    return secondsUntilImpact >= 0 && secondsUntilImpact <= 0.18;
   }
 
   dispose() {
-    this.characterAnimator?.dispose();
-    this.root.dispose(false, false);
+    this.visualRevision += 1;
+    safeRun(() => this.characterAnimator?.dispose());
+    safeRun(() => this.root.dispose(false, false));
   }
 }
 

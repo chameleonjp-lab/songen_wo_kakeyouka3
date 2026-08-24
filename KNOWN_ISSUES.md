@@ -6,9 +6,9 @@
 
 | 状態 | 内容 | 次の確認 |
 |---|---|---|
-| CI／Pages確認済み・実機検証待ち | main commit `2d245cb` のCI run #31とPages deploy run #6は成功。公開URLへ静的ゲームを配信済み | Pages／実機での画面・Network再確認 |
-| 修正済み・再デプロイ後の画面確認待ち | iPhone Safariの報告ではHUDと開始待機は表示されるが、キャラクターが見えず、開始待機が3.0秒付近で止まる場合がある。描画例外時の更新継続、エンジンresize、手続き表示への復旧を今回追加 | このブランチのDraft PRをPagesへデプロイし、縦画面で再確認 |
-| 検証待ち | GitHub Pagesの実プロジェクトサブパスで遅延chunk、画像、GLB、faviconを確認していない | 公開URLでhard reloadとNetworkを確認 |
+| 公開版で再現・修正済み・再配信待ち | PR #17 merge commit `dcdd113` の公開ランチャーは表示できたが、WebGLを使えないブラウザでは汎用ErrorBoundaryへ落ちた。このブランチではEngine生成失敗を捕捉し、専用の案内へ切り替える | Draft PRのpreview／再配信後にWebGLあり・なしの両方を確認 |
+| 修正済み・再配信後の画面確認待ち | iPhone Safariの既報ではHUDと開始待機は表示されるが、キャラクターが見えず、開始待機が3.0秒付近で止まる場合がある。低fpsの時間保持、描画復旧、素材timeout、手続き表示を今回補強 | このブランチをPagesへデプロイし、縦画面で再確認 |
+| 一部確認・GLB確認待ち | GitHub Pagesの実プロジェクトサブパスでランチャー、初期JS、CSS、画像は読み込めた。監査ブラウザにWebGLがなく、ゲーム開始後のGLBと6連戦は確認できなかった | 公開URLでhard reloadし、GLB、favicon、遅延chunkをNetwork確認 |
 | 検証待ち | iPhone Safariで6戦の起動・タッチ・音声・復帰を最終確認していない | [IPHONE.md](IPHONE.md) の縦画面手順を実機で実行 |
 | 修正済み・画面再確認待ち | ランチャー／ゲーム開始文言を旧集団戦から6戦1対1へ更新した | `SIX CONSECUTIVE DUELS` と6体表記を実機で再確認 |
 | 要確認 | Nodeサーバー経路は静的ゲームの既定起動から分離済みだが、今回のブラウザ確認対象外 | Nodeサーバーを使う環境で `pnpm build:server && pnpm start:server` を確認 |
@@ -20,6 +20,9 @@
 - `?demo` は監査のため敵を早期配置し、怒気や入力を自動供給する。本番の開始待機、難易度、無限集団戦を表すモードではない。
 - GitHub Pagesは静的配布であり、Nodeサーバー、認証、DB、オンラインランキング、`rankingSubmission()` の送信先はない。
 - Web Audioの自動再生、iPhoneの振動、localStorageはブラウザ／設定依存。利用できない場合のfallbackは継続プレイを優先する。
+- 主ゲームはランチャー後に遅延読込する。最終bundleは未圧縮1,751,673 bytes、gzip換算425,771 bytesで、Viteの未圧縮500KB警告が残る。iPhone実機で初回読込時間とメモリを測定する。
+
+PR #17後の要件照合、修正一覧、自動検査と未検証範囲は [POST_PR17_REQUIREMENTS_AUDIT.md](POST_PR17_REQUIREMENTS_AUDIT.md) に記録します。
 
 ## 素材・ライセンス
 
