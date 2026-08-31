@@ -218,6 +218,8 @@ body { -webkit-tap-highlight-color: transparent; }
 .player-name-form input:focus { border-color: #f1b45e; box-shadow: 0 0 0 2px rgba(241, 180, 94, .15); }
 .player-name-form .enter-button { justify-self: start; margin-top: 4px; }
 .player-name-form .enter-button:disabled { cursor: not-allowed; opacity: .35; }
+.launcher-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin-top: 13px; }
+.launcher-actions .share-button, .launcher-actions .quiet-button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; text-decoration: none; }
 
 .pause-overlay, .result-overlay { position: absolute; z-index: 30; inset: 0; display: grid; place-items: center; padding: calc(22px + var(--arena-safe-top)) calc(16px + var(--arena-safe-right)) calc(22px + var(--arena-safe-bottom)) calc(16px + var(--arena-safe-left)); overflow: auto; background: rgba(4, 3, 3, .7); pointer-events: auto; }
 .pause-panel, .result-panel { width: min(600px, 100%); max-height: 100%; overflow: auto; padding: clamp(24px, 4vw, 42px); color: #f5e6cd; background: linear-gradient(145deg, rgba(22, 13, 8, .98), rgba(8, 8, 8, .96)); border-top: 1px solid rgba(218, 157, 73, .66); border-bottom: 1px solid rgba(218, 157, 73, .37); box-shadow: 0 24px 80px rgba(0, 0, 0, .64); text-shadow: 0 2px 7px #000; }
@@ -254,6 +256,12 @@ body { -webkit-tap-highlight-color: transparent; }
 .result-stat { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; color: #aa9a83; border-bottom: 1px solid rgba(218, 157, 73, .12); font-size: 11px; }
 .result-stat strong { color: #f0d0a0; font-family: Oswald, "Noto Sans JP", sans-serif; font-size: 12px; font-weight: 500; }
 .share-status { min-height: 18px; margin: 13px 0 0; color: #e6ad62; font-size: 11px; text-align: center; }
+.arena-ranking { margin: 18px 0; padding: 13px 15px; border: 1px solid rgba(218, 157, 73, .22); background: rgba(3, 3, 3, .35); }
+.arena-ranking h3 { margin: 0 0 9px; color: #e6ad62; font-family: Oswald, "Noto Sans JP", sans-serif; font-size: 12px; letter-spacing: .12em; text-align: center; }
+.arena-ranking ol { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.arena-ranking li { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(218, 157, 73, .12); color: #cdbb9e; font-size: 11px; }
+.arena-ranking li strong { color: #f4d5a6; font-family: Oswald, "Noto Sans JP", sans-serif; font-weight: 500; }
+.arena-ranking .ranking-status { min-height: 18px; margin: 4px 0 0; }
 .graphics-recovery-overlay { position: absolute; z-index: 40; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(4, 3, 3, .86); pointer-events: auto; }
 .graphics-recovery-panel { width: min(420px, 100%); padding: 30px 26px; text-align: center; color: #f5e6cd; background: rgba(13, 10, 8, .96); border-top: 1px solid rgba(218, 157, 73, .66); border-bottom: 1px solid rgba(218, 157, 73, .35); box-shadow: 0 24px 70px rgba(0, 0, 0, .64); }
 .graphics-recovery-panel h2 { margin: 0; font-family: Oswald, "Noto Sans JP", sans-serif; font-size: clamp(28px, 5vw, 42px); font-weight: 500; }
