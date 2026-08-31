@@ -330,7 +330,27 @@ function ResultBreakdown({ result }: { result: RunResult }) {
 
 function resultMessage(result: RunResult) {
   const reason = result.reason === "victory" ? "全戦突破" : result.reason === "retired" ? "リタイア" : "敗北";
-  return `尊厳を賭けようか3｜${result.playerName}｜${reason}｜スコア ${result.score}｜ランク ${result.grade}`;
+  return `尊厳を賭けようか3｜${result.playerName}｜${reason}｜スコア ${result.score}｜ランク ${result.grade}\n${window.location.href.split("#")[0]}\n#尊厳を賭けようか3 #ミニゲーム`;
+}
+
+type RankingRow = { rank_no?: number; display_name?: string; player_name?: string; score?: number; best_score?: number };
+const RANKING_URL = "https://mlpnjgezrnhdxsxolyzj.supabase.co";
+const RANKING_KEY = "sb_publishable_drzcy0v97knU6FgjqSgBHw_0A9XPdFM";
+
+async function callRankingRpc(name: string, payload: Record<string, unknown>): Promise<unknown> {
+  const response = await fetch(`${RANKING_URL}/rest/v1/rpc/${name}`, {
+    method: "POST",
+    headers: { apikey: RANKING_KEY, Authorization: `Bearer ${RANKING_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const text = await response.text();
+  const data: unknown = text ? JSON.parse(text) : null;
+  if (!response.ok) throw new Error(`${name}: ${response.status}`);
+  return data;
+}
+
+function rankingRows(data: unknown): RankingRow[] {
+  return Array.isArray(data) ? data.slice(0, 10) as RankingRow[] : [];
 }
 
 function trapModalFocus(event: ReactKeyboardEvent<HTMLElement>) {
@@ -375,6 +395,9 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
   const [hapticsEnabled, setHapticsEnabled] = useState(() => loadHapticsPreference() ?? true);
   const [shakeMode, setShakeMode] = useState<ShakeMode>("full");
   const [shareStatus, setShareStatus] = useState("");
+  const [rankingRowsState, setRankingRowsState] = useState<RankingRow[]>([]);
+  const [rankingStatus, setRankingStatus] = useState("");
+  const rankingKeyRef = useRef("");
   const [contextLost, setContextLost] = useState(false);
   const [sceneError, setSceneError] = useState("");
   const [assetNotice, setAssetNotice] = useState("");
@@ -382,6 +405,42 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
   const query = useMemo(() => new URLSearchParams(window.location.search), []);
   const isDemo = query.has("demo");
   const audioDebug = query.has("audioDebug");
+
+  useEffect(() => {
+    const result = hud.result;
+    if (!result) {
+      rankingKeyRef.current = "";
+      setRankingRowsState([]);
+      setRankingStatus("");
+      return;
+    }
+    const resultKey = `${result.reason}:${result.score}:${result.clearTimeSeconds}:${result.defeats}`;
+    if (rankingKeyRef.current === resultKey) return;
+    rankingKeyRef.current = resultKey;
+    if (isDemo) {
+      setRankingStatus("デモ結果ではランキングを送信しません。");
+      return;
+    }
+    let cancelled = false;
+    setRankingRowsState([]);
+    setRankingStatus("ランキングを更新中…");
+    void (async () => {
+      try {
+        await callRankingRpc("submit_score", { p_display_name: result.playerName, p_game_slug: "songen_wo_kakeyouka3", p_score: Math.trunc(result.score), p_client_version: "songen_wo_kakeyouka3-2026-08-31-platform" });
+      } catch {
+        if (!cancelled) setRankingStatus("今回のスコアを送信できませんでした。ランキングを表示します。");
+      }
+      try {
+        const rows = rankingRows(await callRankingRpc("get_best_score_ranking", { p_game_slug: "songen_wo_kakeyouka3", p_limit: 10 }));
+        if (cancelled) return;
+        setRankingRowsState(rows);
+        setRankingStatus(rows.length ? "上位10名を表示しています。" : "まだランキングがありません。");
+      } catch {
+        if (!cancelled) { setRankingRowsState([]); setRankingStatus("ランキングを読み込めませんでした。"); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [hud.result, isDemo]);
 
   const markTouchPressed = useCallback((id: string, active: boolean) => {
     setPressedTouch((current) => ({ ...current, [id]: active }));
@@ -937,8 +996,13 @@ export default function GameCanvas({ autoStart = false, playerName }: { autoStar
             <div className="result-heading"><div><h2 id="result-title">{hud.result.reason === "victory" ? "全戦突破" : hud.result.reason === "retired" ? "リタイア" : "倒れた"}</h2><p>{hud.result.isNewBest ? "NEW PERSONAL BEST" : `BEST ${hud.result.personalBest.toLocaleString()}`}</p></div><strong className="result-grade">{hud.result.grade}</strong></div>
             <div className="result-score"><span>SCORE</span><strong>{hud.result.score.toLocaleString()}</strong></div>
             <ResultBreakdown result={hud.result} />
+            <section className="arena-ranking" aria-labelledby="arena-ranking-title">
+              <h3 id="arena-ranking-title">スコアランキング TOP10</h3>
+              {rankingRowsState.length > 0 ? <ol>{rankingRowsState.map((row, index) => <li key={`${row.rank_no ?? index}-${row.display_name ?? row.player_name ?? "player"}`}><span>{row.rank_no ?? index + 1}</span><span>{row.display_name ?? row.player_name ?? "ななし"}</span><strong>{Number(row.score ?? row.best_score ?? 0).toLocaleString()}点</strong></li>)}</ol> : <p className="ranking-status">{rankingStatus || "ランキングを読み込み中…"}</p>}
+              {rankingRowsState.length > 0 && <p className="ranking-status">{rankingStatus}</p>}
+            </section>
             <p className="share-status" aria-live="polite">{shareStatus}</p>
-            <div className="result-actions"><button className="enter-button" type="button" autoFocus onClick={() => command("restart")}>再挑戦</button><button className="quiet-button" type="button" onClick={() => command("top")}>トップへ</button><button className="share-button" type="button" onClick={() => void shareResult()}>Web Share</button><button className="share-button" type="button" onClick={() => void copyResult()}>コピー</button></div>
+            <div className="result-actions"><button className="enter-button" type="button" autoFocus onClick={() => command("restart")}>再挑戦</button><button className="quiet-button" type="button" onClick={() => command("top")}>トップへ</button><button className="share-button" type="button" onClick={() => void shareResult()}>Web Share</button><button className="share-button" type="button" onClick={() => void copyResult()}>コピー</button><a className="quiet-button" href="https://chameleonjp-lab.github.io/chameleonjp_lab/" target="_blank" rel="noopener noreferrer">カメレオンJPの実験場へ</a></div>
           </div>
         </section>
       )}
