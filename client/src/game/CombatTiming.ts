@@ -1,2 +1,0 @@
-export const JUST_GUARD_WINDOW_SECONDS = 0.16;
-export const COUNTER_WINDOW_SECONDS = 0.72;
