@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { queueRankingEvent, flushRankingEvents, RANKING_PREFIX } from '../worker/ranking.js';
+import { queueRankingEvent, flushRankingEvents, rankingReady, RANKING_PREFIX } from '../worker/ranking.js';
 
 const event = {
   matchId: '00000000-0000-4000-8000-000000000001',
@@ -53,4 +53,13 @@ test('retains failed events, then sends the identical body and removes it on ack
   assert.deepEqual(calls[0], calls[1]);
   assert.deepEqual(JSON.parse(calls[0][1]), { p_event: event });
   assert.equal(storage.records.has(key), false);
+});
+
+test('public keys cannot make the writer health check pass', async () => {
+  const sender = async () => {
+    throw new Error('A public key must be rejected locally');
+  };
+  const publ = { ...env, RANKING_API_KEY: 'sb_publishable_test' };
+  assert.equal(await rankingReady(publ, sender), false);
+  assert.deepEqual(await flushRankingEvents(createStorage(), publ, sender), { configured: false });
 });

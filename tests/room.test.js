@@ -7,12 +7,17 @@ const profile = (hash, name = '') => ({ hash, name, faceId: 0, playerId: name ? 
 
 test('create and join retries return the original seat, and a third claimant cannot take it', () => {
   const room = new RoomSession();
+  room.advancePresence(250);
+  assert.equal(room.phase, 'waiting');
   assert.equal(room.register('create', 'ABCDE0123FGH', profile('left'), 0).seat, 0);
   assert.equal(room.register('create', 'ABCDE0123FGH', profile('left'), 1).seat, 0);
   assert.equal(room.register('join', 'ABCDE0123FGH', profile('right'), 2).seat, 1);
   assert.equal(room.register('join', 'ABCDE0123FGH', profile('right'), 3).seat, 1);
   assert.equal(room.register('join', 'ABCDE0123FGH', profile('third'), 4).error, 'full');
   assert.equal(room.register('join', 'ABCDE0123FGH', profile('right'), 600001).error, 'expired');
+  room.advancePresence(600001);
+  assert.equal(room.data.code, null);
+  assert.equal(room.register('create', 'ABCDE0123FGH', profile('left'), 600001).error, 'expired');
 });
 
 test('requires both ready and preserves left/right placement', () => {
@@ -41,4 +46,13 @@ test('checks the version, registration data and exact input shape', () => {
   const input = { type: 'input', matchId: 'aaaa0000-0000-0000-0000-000000000000', generation: 1, seq: 2, input: emptyInput() };
   assert.deepEqual(parseMessage(JSON.stringify(input)), input);
   assert.equal(parseMessage(JSON.stringify({ ...input, input: { ...input.input, x: 1 } })).error, 'invalid');
+});
+
+test('a guest can leave a reserved seat before opening a socket', () => {
+  const room = new RoomSession();
+  room.register('create', 'ABCDE0123FGH', profile('left'), 1);
+  room.register('join', 'ABCDE0123FGH', profile('right'), 2);
+  assert.equal(room.leaveByHash('unrelated', 3), null);
+  assert.equal(room.leaveByHash('right', 3), 1);
+  assert.equal(room.register('join', 'ABCDE0123FGH', profile('new'), 4).seat, 1);
 });

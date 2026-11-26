@@ -5,8 +5,21 @@ export function queueRankingEvent(event) {
   return [`${RANKING_PREFIX}${event.matchId}:${order}:${event.seat}`, event];
 }
 
+function isServerKey(key) {
+  if (typeof key !== 'string') return false;
+  if (key.startsWith('sb_secret_')) return true;
+  const parts = key.split('.');
+  if (parts.length !== 3) return false;
+  try {
+    const payload = atob(parts[1].replaceAll('-', '+').replaceAll('_', '/'));
+    return JSON.parse(payload).role === 'service_role';
+  } catch {
+    return false;
+  }
+}
+
 function connection(env) {
-  if (!env.RANKING_SUPABASE_URL || !env.RANKING_API_KEY) return null;
+  if (!env.RANKING_SUPABASE_URL || !isServerKey(env.RANKING_API_KEY)) return null;
   let url;
   try {
     url = new URL(env.RANKING_SUPABASE_URL);
@@ -49,7 +62,7 @@ export async function rankingReady(env, sender = fetch) {
 export async function flushRankingEvents(storage, env, sender = fetch) {
   const config = connection(env);
   if (!config) return { configured: false };
-  const items = await storage.list({ prefix: RANKING_PREFIX, limit: 32 });
+  const items = await storage.list({ prefix: RANKING_PREFIX, limit: 12 });
   for (const [key, event] of items) {
     if (event.kind === 'result') {
       const [startKey] = queueRankingEvent({ ...event, kind: 'start' });

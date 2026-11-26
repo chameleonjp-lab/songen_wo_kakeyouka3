@@ -3,6 +3,7 @@ import {
   CODE_ALPHABET,
   MAX_PACKET_BYTES,
   VERSION,
+  isKey,
   normalizeCode,
   parseMessage,
   parseRegistration,
@@ -18,6 +19,7 @@ const CHECKPOINT_EVERY = 60;
 const MAX_PACKETS_PER_SECOND = 120;
 const MAX_INPUTS_PER_SECOND = 90;
 const RETRY_MS = 60_000;
+let rankProbe;
 const statusByError = { invalid: 400, version: 426, expired: 404, conflict: 409, full: 409,
   credentials: 403, rate_limit: 429, unavailable: 503 };
 
@@ -69,6 +71,14 @@ function checkOrigin(request, env) {
   return (env.ALLOWED_ORIGINS ?? '').split(',').map(entry => entry.trim()).includes(origin) ? origin : null;
 }
 
+function probeRanking(env) {
+  const now = Date.now();
+  if (!rankProbe || rankProbe.until <= now) {
+    rankProbe = { until: now + 15_000, result: rankingReady(env) };
+  }
+  return rankProbe.result;
+}
+
 const canCreate = env => env.ACCEPT_NEW_ROOMS === 'true' && typeof env.ROOM_CODE_SECRET === 'string' &&
   env.ROOM_CODE_SECRET.length >= 32;
 
@@ -77,7 +87,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/v1/health' && request.method === 'GET') {
       const acceptingRooms = canCreate(env);
-      return reply({ version: VERSION, acceptingRooms, rankingReady: await rankingReady(env) });
+      return reply({ version: VERSION, acceptingRooms, rankingReady: await probeRanking(env) });
     }
     const origin = checkOrigin(request, env);
     if (!origin) return reject('credentials');
@@ -88,7 +98,7 @@ export default {
       Vary: 'Origin',
     };
     const create = url.pathname === '/v1/rooms';
-    const path = url.pathname.match(/^\/v1\/rooms\/([^/]{1,24})\/(join|socket)$/);
+    const path = url.pathname.match(/^\/v1\/rooms\/([^/]{1,24})\/(join|leave|socket)$/);
     const code = path && normalizeCode(path[1]);
     if (!create && !code) return reject('expired', cors);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
@@ -106,7 +116,17 @@ export default {
     if (!request.headers.get('Content-Type')?.toLowerCase().startsWith('application/json')) {
       return reject('invalid', cors);
     }
-    const parsed = parseRegistration(await readJSON(request));
+    const body = await readJSON(request);
+    if (path?.[2] === 'leave') {
+      if (body?.version !== VERSION) return reject('version', cors);
+      if (!isKey(body.seatKey)) return reject('invalid', cors);
+      const response = await env.MATCH_ROOMS.getByName(code).fetch('https://room.internal/leave', {
+        method: 'POST',
+        body: JSON.stringify({ hash: await digest('seat', body.seatKey) }),
+      });
+      return reply(await response.json(), response.status, cors);
+    }
+    const parsed = parseRegistration(body);
     if (parsed.error) return reject(parsed.error, cors);
     const roomCode = create ? await deriveCode(env.ROOM_CODE_SECRET, parsed.seatKey) : code;
     const profile = {
@@ -169,6 +189,9 @@ export class MatchRoom {
     ctx.blockConcurrencyWhile(async () => {
       const stored = await ctx.storage.get(persistedKey);
       this.session = new RoomSession(stored);
+      if (env.RANKING_API_KEY && (await ctx.storage.list({ prefix: RANKING_PREFIX, limit: 1 })).size) {
+        this.retryAt = Date.now();
+      }
       if (stored && ['playing', 'paused'].includes(this.session.phase)) {
         this.session.recover(Date.now());
         await this.commit();
@@ -187,24 +210,34 @@ export class MatchRoom {
     if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
       return this.run(async () => {
         await this.maintain(Date.now());
-        if (!this.session.data.code || (this.session.phase === 'expired' && !Object.keys(this.session.data.history).length)) {
-          return reject('expired');
-        }
         if (this.ctx.getWebSockets('auth').filter(ws => !ws.deserializeAttachment().profile).length >= 8 ||
             this.ctx.getWebSockets().length >= 10) return reject('rate_limit');
         const { 0: client, 1: server } = new WebSocketPair();
         this.ctx.acceptWebSocket(server, ['auth']);
         const deadline = Date.now() + AUTH_TIMEOUT_MS;
         server.serializeAttachment({ deadline, profile: null });
-        await this.schedule();
+        if (!this.session.data.code && !Object.keys(this.session.data.history).length) {
+          this.drop(server, 'expired');
+        } else {
+          await this.schedule();
+        }
         return new Response(null, { status: 101, webSocket: client });
       });
     }
-    const { code, profile } = await request.json();
+    const { code, profile, hash } = await request.json();
     const action = new URL(request.url).pathname.slice(1);
     return this.run(async () => {
       const now = Date.now();
       await this.maintain(now);
+      if (action === 'leave') {
+        const before = this.session.phase;
+        const seat = this.session.leaveByHash(hash, now);
+        if (seat === null) return reject('credentials');
+        if (seat === 0) this.closeCurrent('opponent_left', 1);
+        this.closeCurrent('disconnected', seat);
+        await this.transition(before, now);
+        return reply({ left: true });
+      }
       const result = this.session.register(action, code, profile, now);
       if (result.error) return reject(result.error);
       await this.commit();
@@ -258,7 +291,10 @@ export class MatchRoom {
         case 'suspend':
           if (message.matchId === this.session.matchId) {
             changed = this.session.disconnect(seat, generation, now);
-            if (changed) this.drop(ws, 'disconnected');
+            if (changed) {
+              console.info('seat_disconnected', { reason: 'suspended' });
+              this.drop(ws, 'disconnected');
+            }
           }
           break;
         case 'forfeit':
@@ -343,17 +379,26 @@ export class MatchRoom {
     if (!profile || profile.historical) return;
     const before = this.session.phase;
     if (this.session.disconnect(profile.seat, profile.generation, now)) {
+      if (['playing', 'paused'].includes(before)) console.info('seat_disconnected', { reason: 'closed' });
       await this.transition(before, now);
     }
   }
 
   async maintain(now) {
     const before = this.session.phase;
+    const previouslyConnected = this.session.data.members.map(member => member?.seen != null);
     this.session.advancePresence(now);
+    const timedOut = previouslyConnected.flatMap((connected, seat) => {
+      return connected && this.session.data.members[seat]?.seen === null ? [seat] : [];
+    });
+    for (const seat of timedOut) {
+      console.info('seat_disconnected', { reason: 'heartbeat_timeout' });
+      this.closeCurrent('disconnected', seat);
+    }
     if (this.session.phase === 'countdown' && now >= this.session.startAt) {
       this.session.start(crypto.randomUUID(), now);
     }
-    if (this.session.phase !== before) await this.transition(before, now);
+    if (this.session.phase !== before || timedOut.length) await this.transition(before, now);
   }
 
   async transition(before, now) {
@@ -423,8 +468,16 @@ export class MatchRoom {
   }
 
   async commit() {
-    const writes = { [persistedKey]: this.session.data };
     const events = [...this.session.events];
+    const result = this.session.result(this.session.matchId);
+    if (result?.rankingStatus === 'pending' && !events.length) {
+      const unfinished = await this.ctx.storage.list({
+        prefix: `${RANKING_PREFIX}${result.matchId}:`,
+        limit: 1,
+      });
+      if (!unfinished.size) result.rankingStatus = 'sent';
+    }
+    const writes = { [persistedKey]: this.session.data };
     for (const event of events) {
       const [key, body] = queueRankingEvent(event);
       writes[key] = body;

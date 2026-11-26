@@ -58,6 +58,7 @@ export class RoomSession {
   }
 
   register(action, code, profile, now) {
+    if (this.phase === 'expired' || this.isLobbyExpired(now)) return { error: 'expired' };
     if (!this.data.code) {
       if (action !== 'create') return { error: 'expired' };
       this.data.code = code;
@@ -65,7 +66,6 @@ export class RoomSession {
       this.data.members[0] = newMember(profile);
       return this.registration(0);
     }
-    if (this.phase === 'expired' || this.isLobbyExpired(now)) return { error: 'expired' };
     if (action === 'create') {
       return this.data.members[0]?.hash === profile.hash ? this.registration(0) : { error: 'conflict' };
     }
@@ -104,7 +104,7 @@ export class RoomSession {
   }
 
   isLobbyExpired(now) {
-    return ['waiting', 'countdown'].includes(this.phase) && now >= this.data.expiresAt;
+    return this.data.code !== null && ['waiting', 'countdown'].includes(this.phase) && now >= this.data.expiresAt;
   }
 
   roomPacket(seat, generation) {
@@ -171,10 +171,18 @@ export class RoomSession {
   }
 
   leave(seat, generation, now) {
-    if (!['waiting', 'countdown'].includes(this.phase) || !this.disconnect(seat, generation, now)) return false;
+    if (!this.isCurrent(seat, generation)) return false;
+    return this.leaveByHash(this.data.members[seat].hash, now) !== null;
+  }
+
+  leaveByHash(hash, now) {
+    if (!['waiting', 'countdown'].includes(this.phase)) return null;
+    const seat = this.data.members.findIndex(member => member?.hash === hash);
+    if (seat < 0) return null;
+    this.disconnect(seat, this.data.generations[seat], now);
     if (seat === 0) this.expire();
     else this.data.members[1] = null;
-    return true;
+    return seat;
   }
 
   advancePresence(now) {
@@ -319,8 +327,12 @@ export class RoomSession {
 
   expire() {
     this.data.phase = 'expired';
+    this.data.code = null;
     this.data.members = [null, null];
+    this.data.expiresAt = 0;
     this.data.startAt = null;
+    this.data.startedAt = null;
+    this.data.matchId = null;
   }
 
   queueRankingEvent(seat, kind, result) {
