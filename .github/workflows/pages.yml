@@ -2,65 +2,46 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: read
+    env:
+      VITE_MATCH_SERVER_URL: ${{ vars.VITE_MATCH_SERVER_URL }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Check GitHub Pages configuration
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -eu
-          response_file="$(mktemp)"
-          status="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
-            --header 'Accept: application/vnd.github+json' \
-            --header 'X-GitHub-Api-Version: 2022-11-28' \
-            --header "Authorization: Bearer ${GH_TOKEN}" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages")"
-
-          if [ "$status" = "404" ]; then
-            echo "::error title=GitHub Pages workflow source could not be confirmed::The Pages API returned 404. Set Repository Settings → Pages → Build and deployment → Source to GitHub Actions, then rerun this workflow. A visible legacy Jekyll page is not the game deployment. (API status ${status})"
-            cat "$response_file"
+          if ! build_type="$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq .build_type)" || [ "$build_type" != workflow ]; then
+            echo "::error::Set the Pages build and deployment source to GitHub Actions in repository settings."
             exit 1
           fi
-
-          if [ "$status" != "200" ]; then
-            echo "::error title=GitHub Pages configuration could not be read::The Pages API returned HTTP ${status}; check repository permissions and Pages settings before rerunning."
-            cat "$response_file"
-            exit 1
-          fi
-
-          build_type="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("build_type", ""))' "$response_file")"
-          if [ "$build_type" != "workflow" ]; then
-            echo "::error title=GitHub Pages source is not GitHub Actions::Set Pages → Build and deployment → Source to GitHub Actions, then rerun this workflow. (build_type=${build_type:-unknown})"
-            cat "$response_file"
-            exit 1
-          fi
-
-          echo "GitHub Pages is enabled with GitHub Actions as the source."
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: pnpm
@@ -68,26 +49,69 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Validate source and assets
+      - name: Validate source and static output
         run: |
           pnpm check
           pnpm test
-          python3 tools/sync_character_assets.py --check
-          python3 tools/audit_character_glbs.py --check
 
-      - name: Build static site
+      - name: Install WebKit
+        run: pnpm exec playwright install --with-deps webkit
+
+      - name: Run two-player WebKit tests
+        run: pnpm test:browser
+
+      - name: Build static site for production
         run: pnpm build
 
-      - name: Verify static output paths and runtime assets
-        run: pnpm check:static
+      - name: Verify production match server and rankings
+        run: |
+          node --input-type=module <<'NODE'
+          import { VERSION } from './game/protocol.js';
+
+          let url;
+          try {
+            url = new URL(process.env.VITE_MATCH_SERVER_URL);
+          } catch {
+            throw new Error('Set the repository Actions variable VITE_MATCH_SERVER_URL to the production Worker origin.');
+          }
+          if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+            throw new Error('VITE_MATCH_SERVER_URL must be an HTTPS origin.');
+          }
+
+          const response = await fetch(new URL('/v1/health', url), {
+            redirect: 'error',
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (!response.ok) throw new Error(`Health check returned HTTP ${response.status}.`);
+          const { version, acceptingRooms, rankingReady } = await response.json();
+          if (version !== VERSION) throw new Error(`The Worker must report protocol version ${VERSION}.`);
+          if (acceptingRooms !== true) throw new Error('The Worker is not accepting new rooms.');
+          if (rankingReady !== true) throw new Error('The ranking service is not ready.');
+
+          const publicOrigin = 'https://chameleonjp-lab.github.io';
+          const preflight = await fetch(new URL('/v1/rooms', url), {
+            method: 'OPTIONS',
+            headers: {
+              Origin: publicOrigin,
+              'Access-Control-Request-Method': 'POST',
+              'Access-Control-Request-Headers': 'Content-Type',
+            },
+            redirect: 'error',
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (!preflight.ok || preflight.headers.get('access-control-allow-origin') !== publicOrigin) {
+            throw new Error('The Worker must allow room requests from the GitHub Pages origin.');
+          }
+          console.log(`The production Worker accepts rooms using protocol ${VERSION} and rankings are ready.`);
+          NODE
 
       - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
-      - name: Upload static Vite output
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
-          path: ./dist/public
+          path: dist/public
 
   deploy:
     needs: build
@@ -101,4 +125,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
