@@ -1,0 +1,541 @@
+{
+  "revision": "060b251a7016725bfd4e7886936eabf223b092d0",
+  "browser": "Playwright WebKit 26.5",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "stage": {
+    "width": 390,
+    "height": 659.984375,
+    "left": 0,
+    "top": 0,
+    "groundY": 581.984375,
+    "floorY": 629.984375,
+    "floorHeight": 3,
+    "hitXOffset": {
+      "leftArm": -38,
+      "rightArm": 38,
+      "leftFoot": -38,
+      "rightFoot": 38,
+      "head": 0,
+      "heart": 0
+    },
+    "hitY": {
+      "high": 546.984375,
+      "mid": 581.984375,
+      "low": 615.984375
+    }
+  },
+  "scenarios": [
+    {
+      "name": "front-arm, remaining guard and heart from seat 0",
+      "inputs": [
+        {
+          "seat": 0,
+          "from": 1,
+          "to": 1,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 50,
+          "to": 50,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 100,
+          "to": 100,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 150,
+          "to": 150,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 1,
+          "from": 115,
+          "to": 115,
+          "input": {
+            "guardPressed": true
+          }
+        }
+      ],
+      "checkpoints": [
+        1,
+        20,
+        69,
+        118,
+        119,
+        120,
+        150,
+        176,
+        177
+      ],
+      "observations": [
+        {"tick":1,"simulationTimeMs":16.666667,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[{"owner":0,"height":"mid","x":133.2,"y":581.984375}],"statsBySeat":[{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":0}],"final":null},
+        {"tick":20,"simulationTimeMs":333.333333,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[1,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":0}],"final":null},
+        {"tick":69,"simulationTimeMs":1150,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":3,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[2,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":2,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":230},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":-510}],"final":null},
+        {"tick":118,"simulationTimeMs":1966.666667,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":2,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":4.5,"guardArm":"rightArm","damage":[2,0,0,0,0]}],"projectiles":[{"owner":0,"height":"mid","x":219.6,"y":581.984375}],"statsBySeat":[{"attacks":3,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":200},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":-510}],"final":null},
+        {"tick":119,"simulationTimeMs":1983.333333,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":2,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":4,"guardArm":"rightArm","damage":[2,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":3,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":200},{"attacks":0,"guardSuccess":1,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":-390}],"final":null},
+        {"tick":120,"simulationTimeMs":2000,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":2,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":4,"guardArm":"rightArm","damage":[2,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":3,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":190},{"attacks":0,"guardSuccess":1,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":-400}],"final":null},
+        {"tick":150,"simulationTimeMs":2500,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":1,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[2,0,0,0,0]}],"projectiles":[{"owner":0,"height":"mid","x":133.2,"y":581.984375}],"statsBySeat":[{"attacks":4,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":160},{"attacks":0,"guardSuccess":1,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":-400}],"final":null},
+        {"tick":176,"simulationTimeMs":2933.333333,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":1,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[2,0,0,0,0]}],"projectiles":[{"owner":0,"height":"mid","x":258,"y":581.984375}],"statsBySeat":[{"attacks":4,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":160},{"attacks":0,"guardSuccess":1,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":-400}],"final":null},
+        {"tick":177,"simulationTimeMs":2950,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":1,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[2,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":4,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":160},{"attacks":0,"guardSuccess":1,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":-400}],"final":{"outcomeBySeat":["win","loss"],"scoreBySeat":[5150,-410],"elapsedSec":3}}
+      ]
+    },
+    {
+      "name": "front-arm, remaining guard and heart from seat 1",
+      "inputs": [
+        {
+          "seat": 1,
+          "from": 1,
+          "to": 1,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 1,
+          "from": 50,
+          "to": 50,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 1,
+          "from": 100,
+          "to": 100,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 1,
+          "from": 150,
+          "to": 150,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 115,
+          "to": 115,
+          "input": {
+            "guardPressed": true
+          }
+        }
+      ],
+      "checkpoints": [
+        1,
+        20,
+        69,
+        118,
+        119,
+        120,
+        150,
+        176,
+        177
+      ],
+      "observations": [
+        {"tick":1,"simulationTimeMs":16.666667,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[{"owner":1,"height":"mid","x":256.8,"y":581.984375}],"statsBySeat":[{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":0},{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30}],"final":null},
+        {"tick":20,"simulationTimeMs":333.333333,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,1,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":0},{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30}],"final":null},
+        {"tick":69,"simulationTimeMs":1150,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,2,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":3,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":-510},{"attacks":2,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":230}],"final":null},
+        {"tick":118,"simulationTimeMs":1966.666667,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":4.5,"guardArm":"leftArm","damage":[0,2,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":2,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[{"owner":1,"height":"mid","x":170.4,"y":581.984375}],"statsBySeat":[{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":-510},{"attacks":3,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":200}],"final":null},
+        {"tick":119,"simulationTimeMs":1983.333333,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":4,"guardArm":"leftArm","damage":[0,2,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":2,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":0,"guardSuccess":1,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":-390},{"attacks":3,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":200}],"final":null},
+        {"tick":120,"simulationTimeMs":2000,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":4,"guardArm":"leftArm","damage":[0,2,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":2,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":0,"guardSuccess":1,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":-400},{"attacks":3,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":190}],"final":null},
+        {"tick":150,"simulationTimeMs":2500,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[0,2,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":1,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[{"owner":1,"height":"mid","x":256.8,"y":581.984375}],"statsBySeat":[{"attacks":0,"guardSuccess":1,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":-400},{"attacks":4,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":160}],"final":null},
+        {"tick":176,"simulationTimeMs":2933.333333,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[0,2,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":1,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[{"owner":1,"height":"mid","x":132,"y":581.984375}],"statsBySeat":[{"attacks":0,"guardSuccess":1,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":-400},{"attacks":4,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":160}],"final":null},
+        {"tick":177,"simulationTimeMs":2950,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[0,2,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":1,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":0,"guardSuccess":1,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":-400},{"attacks":4,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":160}],"final":{"outcomeBySeat":["loss","win"],"scoreBySeat":[-410,5150],"elapsedSec":3}}
+      ]
+    },
+    {
+      "name": "low punches, one leg halves movement, two legs stop movement and jump",
+      "inputs": [
+        {
+          "seat": 0,
+          "from": 1,
+          "to": 1,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 50,
+          "to": 50,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 100,
+          "to": 100,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 150,
+          "to": 150,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 1,
+          "to": 150,
+          "input": {
+            "crouch": true
+          }
+        },
+        {
+          "seat": 1,
+          "from": 72,
+          "to": 76,
+          "input": {
+            "right": true
+          }
+        },
+        {
+          "seat": 1,
+          "from": 77,
+          "to": 81,
+          "input": {
+            "left": true
+          }
+        },
+        {
+          "seat": 1,
+          "from": 172,
+          "to": 178,
+          "input": {
+            "right": true
+          }
+        },
+        {
+          "seat": 1,
+          "from": 73,
+          "to": 73,
+          "input": {
+            "jumpPressed": true
+          }
+        },
+        {
+          "seat": 1,
+          "from": 175,
+          "to": 175,
+          "input": {
+            "jumpPressed": true
+          }
+        }
+      ],
+      "checkpoints": [
+        1,
+        20,
+        69,
+        72,
+        73,
+        76,
+        81,
+        119,
+        169,
+        175,
+        178
+      ],
+      "observations": [
+        {"tick":1,"simulationTimeMs":16.666667,"players":[{"x":109.2,"y":591.984375,"posture":"crouch","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[{"owner":0,"height":"low","x":133.2,"y":615.984375}],"statsBySeat":[{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":0}],"final":null},
+        {"tick":20,"simulationTimeMs":333.333333,"players":[{"x":109.2,"y":591.984375,"posture":"crouch","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,1,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":0}],"final":null},
+        {"tick":69,"simulationTimeMs":1150,"players":[{"x":109.2,"y":591.984375,"posture":"crouch","stamina":3,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,2,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":2,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":230},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":-510}],"final":null},
+        {"tick":72,"simulationTimeMs":1200,"players":[{"x":109.2,"y":591.984375,"posture":"crouch","stamina":3,"guardArm":null,"damage":[0,0,0,0,0]},{"x":281.733333,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,2,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":2,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":230},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":-510}],"final":null},
+        {"tick":73,"simulationTimeMs":1216.666667,"players":[{"x":109.2,"y":591.984375,"posture":"crouch","stamina":3,"guardArm":null,"damage":[0,0,0,0,0]},{"x":282.666667,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,2,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":2,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":230},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":-510}],"final":null},
+        {"tick":76,"simulationTimeMs":1266.666667,"players":[{"x":109.2,"y":591.984375,"posture":"crouch","stamina":3,"guardArm":null,"damage":[0,0,0,0,0]},{"x":285.466667,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,2,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":2,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":230},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":-510}],"final":null},
+        {"tick":81,"simulationTimeMs":1350,"players":[{"x":109.2,"y":591.984375,"posture":"crouch","stamina":3,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,2,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":2,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":230},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":-510}],"final":null},
+        {"tick":119,"simulationTimeMs":1983.333333,"players":[{"x":109.2,"y":591.984375,"posture":"crouch","stamina":2,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,2,1,0]}],"projectiles":[],"statsBySeat":[{"attacks":3,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":200},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":-510}],"final":null},
+        {"tick":169,"simulationTimeMs":2816.666667,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":1,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,2,2,0]}],"projectiles":[],"statsBySeat":[{"attacks":4,"guardSuccess":0,"enemyPartsBroken":2,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":460},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":2,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":-1020}],"final":null},
+        {"tick":175,"simulationTimeMs":2916.666667,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":1,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,2,2,0]}],"projectiles":[],"statsBySeat":[{"attacks":4,"guardSuccess":0,"enemyPartsBroken":2,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":460},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":2,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":-1020}],"final":null},
+        {"tick":178,"simulationTimeMs":2966.666667,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":1,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,2,2,0]}],"projectiles":[],"statsBySeat":[{"attacks":4,"guardSuccess":0,"enemyPartsBroken":2,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":460},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":2,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":-1020}],"final":null}
+      ]
+    },
+    {
+      "name": "crouching exposes limbs and no arm prevents punching and guarding",
+      "inputs": [
+        {
+          "seat": 0,
+          "from": 1,
+          "to": 1,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 50,
+          "to": 50,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 100,
+          "to": 100,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 150,
+          "to": 150,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 200,
+          "to": 200,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 400,
+          "to": 400,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 600,
+          "to": 600,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 800,
+          "to": 800,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 1,
+          "to": 850,
+          "input": {
+            "crouch": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 1,
+          "to": 25,
+          "input": {
+            "right": true
+          }
+        },
+        {
+          "seat": 1,
+          "from": 1,
+          "to": 850,
+          "input": {
+            "crouch": true
+          }
+        },
+        {
+          "seat": 1,
+          "from": 720,
+          "to": 720,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 1,
+          "from": 850,
+          "to": 850,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 1,
+          "from": 850,
+          "to": 850,
+          "input": {
+            "guardPressed": true
+          }
+        }
+      ],
+      "checkpoints": [
+        69,
+        169,
+        420,
+        621,
+        720,
+        830,
+        850
+      ],
+      "observations": [
+        {"tick":69,"simulationTimeMs":1150,"players":[{"x":155.866667,"y":591.984375,"posture":"crouch","stamina":3,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":591.984375,"posture":"crouch","stamina":5,"guardArm":null,"damage":[2,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":2,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":230},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":-510}],"final":null},
+        {"tick":169,"simulationTimeMs":2816.666667,"players":[{"x":155.866667,"y":591.984375,"posture":"crouch","stamina":1,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":591.984375,"posture":"crouch","stamina":5,"guardArm":null,"damage":[2,0,2,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":4,"guardSuccess":0,"enemyPartsBroken":2,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":460},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":2,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":-1020}],"final":null},
+        {"tick":420,"simulationTimeMs":7000,"players":[{"x":155.866667,"y":591.984375,"posture":"crouch","stamina":1,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":591.984375,"posture":"crouch","stamina":5,"guardArm":null,"damage":[2,0,2,2,0]}],"projectiles":[],"statsBySeat":[{"attacks":6,"guardSuccess":0,"enemyPartsBroken":3,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":7,"score":650},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":3,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":7,"score":-1570}],"final":null},
+        {"tick":621,"simulationTimeMs":10350,"players":[{"x":155.866667,"y":591.984375,"posture":"crouch","stamina":1,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":591.984375,"posture":"crouch","stamina":5,"guardArm":null,"damage":[2,0,2,2,0]}],"projectiles":[{"owner":0,"height":"low","x":280.666667,"y":625.984375}],"statsBySeat":[{"attacks":7,"guardSuccess":0,"enemyPartsBroken":3,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":10,"score":590},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":3,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":10,"score":-1600}],"final":null},
+        {"tick":720,"simulationTimeMs":12000,"players":[{"x":155.866667,"y":591.984375,"posture":"crouch","stamina":1,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":591.984375,"posture":"crouch","stamina":4,"guardArm":null,"damage":[2,1,2,2,0]}],"projectiles":[{"owner":1,"height":"low","x":256.8,"y":625.984375}],"statsBySeat":[{"attacks":7,"guardSuccess":0,"enemyPartsBroken":3,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":11,"score":580},{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":3,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":11,"score":-1640}],"final":null},
+        {"tick":830,"simulationTimeMs":13833.333333,"players":[{"x":155.866667,"y":591.984375,"posture":"crouch","stamina":1,"guardArm":null,"damage":[0,1,0,0,0]},{"x":280.8,"y":591.984375,"posture":"crouch","stamina":5,"guardArm":null,"damage":[2,2,2,2,0]}],"projectiles":[],"statsBySeat":[{"attacks":8,"guardSuccess":0,"enemyPartsBroken":4,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":13,"score":830},{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":4,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":13,"score":-2160}],"final":null},
+        {"tick":850,"simulationTimeMs":14166.666667,"players":[{"x":155.866667,"y":591.984375,"posture":"crouch","stamina":1,"guardArm":null,"damage":[0,1,0,0,0]},{"x":280.8,"y":591.984375,"posture":"crouch","stamina":5,"guardArm":null,"damage":[2,2,2,2,0]}],"projectiles":[],"statsBySeat":[{"attacks":8,"guardSuccess":0,"enemyPartsBroken":4,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":14,"score":820},{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":4,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":14,"score":-2170}],"final":null}
+      ]
+    },
+    {
+      "name": "jump and punch together, repeated broken head hits",
+      "inputs": [
+        {
+          "seat": 0,
+          "from": 1,
+          "to": 1,
+          "input": {
+            "jumpPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 1,
+          "to": 1,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 50,
+          "to": 50,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 100,
+          "to": 100,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 0,
+          "from": 150,
+          "to": 150,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 1,
+          "from": 49,
+          "to": 177,
+          "input": {
+            "crouch": true
+          }
+        }
+      ],
+      "checkpoints": [
+        1,
+        20,
+        28,
+        49,
+        77,
+        127,
+        177
+      ],
+      "observations": [
+        {"tick":1,"simulationTimeMs":16.666667,"players":[{"x":109.2,"y":543.984375,"posture":"jump","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[{"owner":0,"height":"high","x":133.2,"y":581.984375}],"statsBySeat":[{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":0}],"final":null},
+        {"tick":20,"simulationTimeMs":333.333333,"players":[{"x":109.2,"y":543.984375,"posture":"jump","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[{"owner":0,"height":"high","x":224.4,"y":581.984375}],"statsBySeat":[{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":0}],"final":null},
+        {"tick":28,"simulationTimeMs":466.666667,"players":[{"x":109.2,"y":543.984375,"posture":"jump","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,0,0,1]}],"projectiles":[],"statsBySeat":[{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":0}],"final":null},
+        {"tick":49,"simulationTimeMs":816.666667,"players":[{"x":109.2,"y":543.984375,"posture":"jump","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":591.984375,"posture":"crouch","stamina":5,"guardArm":null,"damage":[0,0,0,0,1]}],"projectiles":[],"statsBySeat":[{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":0}],"final":null},
+        {"tick":77,"simulationTimeMs":1283.333333,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":3,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":591.984375,"posture":"crouch","stamina":5,"guardArm":null,"damage":[0,0,0,0,2]}],"projectiles":[],"statsBySeat":[{"attacks":2,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":-70},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":1,"score":-10}],"final":null},
+        {"tick":127,"simulationTimeMs":2116.666667,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":2,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":591.984375,"posture":"crouch","stamina":5,"guardArm":null,"damage":[0,0,0,0,3]}],"projectiles":[],"statsBySeat":[{"attacks":3,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":1,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":890},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":1,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":2,"score":-520}],"final":null},
+        {"tick":177,"simulationTimeMs":2950,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":1,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":591.984375,"posture":"crouch","stamina":5,"guardArm":null,"damage":[0,0,0,0,3]}],"projectiles":[],"statsBySeat":[{"attacks":4,"guardSuccess":0,"enemyPartsBroken":1,"playerPartsBroken":0,"enemyHeadBroken":1,"playerHeadBroken":0,"enemyBrokenPartHits":1,"playerBrokenPartHits":0,"elapsedSec":2,"score":1160},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":1,"enemyHeadBroken":0,"playerHeadBroken":1,"enemyBrokenPartHits":0,"playerBrokenPartHits":1,"elapsedSec":2,"score":-820}],"final":null}
+      ]
+    },
+    {
+      "name": "same-height fists cancel before either can hit a part",
+      "inputs": [
+        {
+          "seat": 0,
+          "from": 1,
+          "to": 1,
+          "input": {
+            "attackPressed": true
+          }
+        },
+        {
+          "seat": 1,
+          "from": 1,
+          "to": 1,
+          "input": {
+            "attackPressed": true
+          }
+        }
+      ],
+      "checkpoints": [
+        1,
+        10,
+        14,
+        20
+      ],
+      "observations": [
+        {"tick":1,"simulationTimeMs":16.666667,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[{"owner":0,"height":"mid","x":133.2,"y":581.984375},{"owner":1,"height":"mid","x":256.8,"y":581.984375}],"statsBySeat":[{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30},{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30}],"final":null},
+        {"tick":10,"simulationTimeMs":166.666667,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[{"owner":0,"height":"mid","x":176.4,"y":581.984375},{"owner":1,"height":"mid","x":213.6,"y":581.984375}],"statsBySeat":[{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30},{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30}],"final":null},
+        {"tick":14,"simulationTimeMs":233.333333,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30},{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30}],"final":null},
+        {"tick":20,"simulationTimeMs":333.333333,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":4,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30},{"attacks":1,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":-30}],"final":null}
+      ]
+    },
+    {
+      "name": "two in-flight fists strike exposed hearts on the same tick",
+      "setup": "crossedFists",
+      "inputs": [],
+      "checkpoints": [
+        1
+      ],
+      "observations": [
+        {"tick":1,"simulationTimeMs":16.666667,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,2,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[2,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":0},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":0,"score":0}],"final":{"outcomeBySeat":["draw","draw"],"scoreBySeat":[-10,-10],"elapsedSec":1}}
+      ]
+    },
+    {
+      "name": "idle 180-second draw",
+      "inputs": [],
+      "checkpoints": [
+        10799,
+        10800,
+        10801
+      ],
+      "observations": [
+        {"tick":10799,"simulationTimeMs":179983.333333,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":179,"score":-1790},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":179,"score":-1790}],"final":null},
+        {"tick":10800,"simulationTimeMs":180000,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":179,"score":-1790},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":179,"score":-1790}],"final":null},
+        {"tick":10801,"simulationTimeMs":180016.666667,"players":[{"x":109.2,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,0,0,0]},{"x":280.8,"y":581.984375,"posture":"stand","stamina":5,"guardArm":null,"damage":[0,0,0,0,0]}],"projectiles":[],"statsBySeat":[{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":180,"score":-1800},{"attacks":0,"guardSuccess":0,"enemyPartsBroken":0,"playerPartsBroken":0,"enemyHeadBroken":0,"playerHeadBroken":0,"enemyBrokenPartHits":0,"playerBrokenPartHits":0,"elapsedSec":180,"score":-1800}],"final":{"outcomeBySeat":["draw","draw"],"scoreBySeat":[-1800,-1800],"elapsedSec":180}}
+      ]
+    }
+  ]
+}
