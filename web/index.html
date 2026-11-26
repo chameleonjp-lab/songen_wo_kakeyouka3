@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101218">
+  <meta name="description" content="その心臓を、拳で狙え。友だちと絵文字でオンライン対戦。">
+  <link rel="canonical" href="https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="尊厳を賭けようか3">
+  <meta property="og:description" content="その心臓を、拳で狙え。友だちと絵文字でオンライン対戦。">
+  <meta property="og:url" content="https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/">
+  <meta property="og:image" content="https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/assets/social-card.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="尊厳を賭けようか3。絵文字の頭・心臓・腕・脚・羽を持つ2人の対戦。">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="尊厳を賭けようか3">
+  <meta name="twitter:description" content="その心臓を、拳で狙え。友だちと絵文字でオンライン対戦。">
+  <meta name="twitter:image" content="https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/assets/social-card.png">
+  <meta name="twitter:image:alt" content="尊厳を賭けようか3。絵文字の頭・心臓・腕・脚・羽を持つ2人の対戦。">
+  <title>尊厳を賭けようか3</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./js/app.js"></script>
+</head>
+<body>
+  <main id="app">
+    <section class="screen menu" data-screen="home" aria-labelledby="home-title">
+      <div class="panel home-panel">
+        <label class="language"><span data-i18n="m114">言語</span><select id="language"></select></label>
+        <div class="hero">
+          <span class="hero-heart" aria-hidden="true">🫀</span>
+          <h1 id="home-title" data-i18n="title">尊厳を賭けようか3</h1>
+          <p data-i18n="intro">その心臓を、拳で狙え。友だちと絵文字でオンライン対戦。</p>
+        </div>
+        <div id="home-actions" class="stack">
+          <button id="prepare" class="primary" type="button" data-i18n="prepare">ゲームの準備</button>
+          <details id="rules">
+            <summary class="button" data-i18n="m010">ルール説明</summary>
+            <ul>
+              <li data-i18n="m013"></li>
+              <li data-i18n="m014"></li>
+              <li data-i18n="m015"></li>
+              <li data-i18n="m016"></li>
+              <li data-i18n="m017"></li>
+              <li data-i18n="m018"></li>
+              <li data-i18n="m019"></li>
+            </ul>
+          </details>
+          <a id="home-share" class="button" target="_blank" rel="noopener noreferrer" data-i18n="share">Xにシェア</a>
+          <a class="button ranking" target="_blank" rel="noopener noreferrer" data-i18n="m009">ランキング</a>
+        </div>
+        <div class="sound-settings">
+          <button id="sound-toggle" type="button" aria-pressed="true"></button>
+          <label><span data-i18n="m116">音量</span><input id="sound-volume" type="range" min="0" max="1" step="0.05"></label>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen menu" data-screen="register" aria-labelledby="register-title" hidden>
+      <div class="panel">
+        <h2 id="register-title" data-i18n="register">プレイヤー登録</h2>
+        <form id="profile-form" class="stack">
+          <label class="field">
+            <span data-i18n="name">プレイヤー名（任意）</span>
+            <input id="player-name" maxlength="12" autocomplete="nickname" enterkeyhint="next" data-i18n-placeholder="m060" aria-describedby="name-disclosure">
+          </label>
+          <p id="name-disclosure" class="muted note" data-i18n="m004">名前を入力すると、名前と記録がランキングに公開されます。空欄でも遊べます。</p>
+          <fieldset class="stack">
+            <legend data-i18n="face">顔を選ぶ</legend>
+            <div id="face-grid" class="face-grid"></div>
+          </fieldset>
+          <button id="create-room" class="primary" type="button" data-i18n="create">ルームを立てる</button>
+        </form>
+        <div id="created-room" class="invite stack" hidden>
+          <label class="field">
+            <span data-i18n="roomId">ルームID</span>
+            <input id="invite-code" readonly aria-describedby="copy-status" spellcheck="false">
+          </label>
+          <div class="row">
+            <button id="copy-room" type="button" data-i18n="copy">IDをコピー</button>
+            <a id="invite-share" class="button" target="_blank" rel="noopener noreferrer" data-i18n="share">Xにシェア</a>
+          </div>
+          <p id="copy-status" class="status" role="status"></p>
+          <button id="enter-lobby" class="primary" type="button" data-i18n="enter">待機室へ</button>
+        </div>
+        <form id="join-room" class="stack">
+          <label class="field">
+            <span data-i18n="roomId">ルームID</span>
+            <input id="join-code" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go">
+          </label>
+          <button id="join-button" type="submit" data-i18n="m058">参加する</button>
+        </form>
+        <p id="register-status" class="status" role="status"></p>
+        <button class="back" type="button" data-home data-i18n="home">ホーム</button>
+      </div>
+    </section>
+
+    <section class="screen menu" data-screen="lobby" aria-labelledby="lobby-title" hidden>
+      <div class="panel stack lobby-panel">
+        <h2 id="lobby-title" data-i18n="lobby">待機室</h2>
+        <p class="muted lobby-code"><span data-i18n="roomId">ルームID</span> <b id="lobby-code"></b></p>
+        <div id="lobby-players" class="players"></div>
+        <p id="lobby-status" class="status" role="status"></p>
+        <div id="countdown" class="countdown" role="status" hidden></div>
+        <button id="ready" class="primary" type="button" data-i18n="ready">準備完了</button>
+        <button class="back" type="button" data-home data-i18n="home">ホーム</button>
+      </div>
+    </section>
+
+    <section class="screen arena-screen" data-screen="game" data-i18n-aria-label="m063" hidden>
+      <div class="game-layout">
+        <header class="game-header">
+          <div id="game-players" class="players game-players"></div>
+          <div class="game-time"><span data-i18n="m125">残り時間</span><b id="battle-time">180</b></div>
+          <button id="forfeit" class="danger" type="button" data-i18n="forfeit">降参</button>
+          <button id="disconnected-home" type="button" data-home data-i18n="home" hidden>ホーム</button>
+        </header>
+        <div id="game-board" class="board" aria-live="off"></div>
+        <div id="battle-status" class="battle-status" role="status" hidden></div>
+        <div id="movement" class="move-pad" data-i18n-aria-label="m067">
+          <button type="button" data-control="jumpPressed" data-i18n-aria-label="m068"><span aria-hidden="true">▲</span></button>
+          <button type="button" data-control="left" data-i18n-aria-label="left"><span aria-hidden="true">◀</span></button>
+          <button type="button" data-control="right" data-i18n-aria-label="right"><span aria-hidden="true">▶</span></button>
+          <button type="button" data-control="crouch" data-i18n-aria-label="m069"><span aria-hidden="true">▼</span></button>
+        </div>
+        <div id="actions" class="action-pad">
+          <button type="button" data-control="attackPressed"><span aria-hidden="true">🤜</span><span data-i18n="attack">拳</span></button>
+          <button type="button" data-control="guardPressed"><span aria-hidden="true">💪</span><span data-i18n="guard">ガード</span></button>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen announcement" data-screen="announcement" aria-labelledby="announcement-title" hidden>
+      <div class="announcement-layout">
+        <header>
+          <h2 id="announcement-title" data-i18n="announcement">結果発表</h2>
+          <strong id="announcement-outcome"></strong>
+          <p id="announcement-reason" class="muted"></p>
+        </header>
+        <div id="final-players" class="players"></div>
+        <div id="final-board" class="board"></div>
+        <button id="show-score" class="primary" type="button" data-i18n="toScore">スコア結果へ</button>
+      </div>
+    </section>
+
+    <section class="screen menu" data-screen="score" aria-labelledby="score-title" hidden>
+      <div class="panel stack score-panel">
+        <h2 id="score-title" data-i18n="scoreTitle">スコア結果</h2>
+        <div class="score-heading">
+          <strong id="score-outcome"></strong>
+          <p id="score-reason" class="muted"></p>
+          <p id="score-value" class="score-value"></p>
+        </div>
+        <dl id="score-breakdown" class="breakdown"></dl>
+        <p id="ranking-status" class="status" role="status"></p>
+        <p id="score-status" class="status" role="status"></p>
+        <div id="score-actions" class="stack">
+          <button id="return-to-room" class="primary" type="button" data-i18n="return">ルームに戻る</button>
+          <a id="score-share" class="button" target="_blank" rel="noopener noreferrer" data-i18n="share">Xにシェア</a>
+          <button type="button" data-home data-i18n="home">ホーム</button>
+          <a class="button ranking" target="_blank" rel="noopener noreferrer" data-i18n="m009">ランキング</a>
+        </div>
+      </div>
+    </section>
+
+    <dialog id="forfeit-dialog" aria-labelledby="forfeit-title">
+      <div class="stack">
+        <h2 id="forfeit-title" data-i18n="forfeit">降参</h2>
+        <p data-i18n="confirmForfeit">降参すると相手の勝ちになります。降参しますか？</p>
+        <div class="row">
+          <button id="cancel-forfeit" type="button" data-i18n="m020">閉じる</button>
+          <button id="confirm-forfeit" class="danger" type="button" data-i18n="forfeit">降参</button>
+        </div>
+      </div>
+    </dialog>
+  </main>
+</body>
+</html>
