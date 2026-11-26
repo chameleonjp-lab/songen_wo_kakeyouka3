@@ -92,3 +92,11 @@ test('restart interrupts a running match but keeps a stored result', () => {
   restart.recover(4100);
   assert.deepEqual(restart.result(first), recovery.result(first));
 });
+
+test('will not return a finished result after its retention period, even if cleanup is late', () => {
+  const { room, right } = setup();
+  room.forfeit(1, right.generation, first, 3001);
+  const { expiresAt } = room.result(first);
+  assert.equal(room.connect('right', first, expiresAt - 1).seat, 1);
+  assert.equal(room.connect('right', first, expiresAt).error, 'expired');
+});

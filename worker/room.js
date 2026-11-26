@@ -90,7 +90,10 @@ export class RoomSession {
       }
       return { error: 'expired' };
     }
-    if (this.phase === 'expired' || this.isLobbyExpired(now)) return { error: 'expired' };
+    if (this.phase === 'expired' || this.isLobbyExpired(now) ||
+        (this.phase === 'finished' && this.result(this.matchId).expiresAt <= now)) {
+      return { error: 'expired' };
+    }
     const seat = this.data.members.findIndex(member => member?.hash === hash);
     if (seat < 0) return { error: this.data.code ? 'credentials' : 'expired' };
     const generation = ++this.data.generations[seat];
