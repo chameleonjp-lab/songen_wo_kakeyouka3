@@ -20,7 +20,7 @@ function isServerKey(key) {
 }
 
 function connection(env) {
-  if (!rankingsPublic(env) || !env.RANKING_SUPABASE_URL || !isServerKey(env.RANKING_API_KEY)) return null;
+  if (!rankingsPublic(env) || !env.RANKING_SUPABASE_URL) return null;
   let url;
   try {
     url = new URL(env.RANKING_SUPABASE_URL);
@@ -30,15 +30,26 @@ function connection(env) {
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
     return null;
   }
+  if (typeof env.RANKING_PUBLISHABLE_KEY === 'string' && env.RANKING_PUBLISHABLE_KEY.startsWith('sb_publishable_') &&
+      /^[0-9a-f]{64}$/.test(env.RANKING_INGEST_KEY ?? '')) {
+    return {
+      url, writer: 'submit_songen3_online_event',
+      headers: { 'Content-Type': 'application/json', apikey: env.RANKING_PUBLISHABLE_KEY },
+      writerHeaders: { 'X-Songen3-Ranking-Key': env.RANKING_INGEST_KEY },
+    };
+  }
+  if (!isServerKey(env.RANKING_API_KEY)) return null;
   const headers = { 'Content-Type': 'application/json', apikey: env.RANKING_API_KEY };
   if (!env.RANKING_API_KEY.startsWith('sb_')) headers.Authorization = `Bearer ${env.RANKING_API_KEY}`;
-  return { url, headers };
+  return { url, headers, writer: 'record_songen3_online_event' };
 }
+
+export const rankingConfigured = env => Boolean(connection(env));
 
 async function rpc(config, functionName, body, sender) {
   const response = await sender(new URL(`/rest/v1/rpc/${functionName}`, config.url), {
     method: 'POST',
-    headers: config.headers,
+    headers: functionName === config.writer ? { ...config.headers, ...config.writerHeaders } : config.headers,
     signal: AbortSignal.timeout(3500),
     redirect: 'error',
     body: JSON.stringify(body),
@@ -50,6 +61,10 @@ export async function rankingReady(env, sender = fetch) {
   const config = connection(env);
   if (!config) return false;
   try {
+    if (config.writerHeaders) {
+      const authorized = await rpc(config, config.writer, { p_event: null }, sender);
+      if (!authorized.ok || await authorized.json() !== true) return false;
+    }
     const response = await rpc(config, 'songen3_online_stats_v1', {}, sender);
     if (!response.ok) return false;
     const [row] = await response.json();
@@ -70,7 +85,7 @@ export async function flushRankingEvents(storage, env, sender = fetch) {
       if (items.has(startKey)) continue;
     }
     try {
-      const response = await rpc(config, 'record_songen3_online_event', { p_event: event }, sender);
+      const response = await rpc(config, config.writer, { p_event: event }, sender);
       if (!response.ok) {
         if (response.status >= 500 || response.status === 429) break;
         continue;

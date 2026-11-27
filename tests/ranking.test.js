@@ -76,3 +76,28 @@ test('a ranking hold skips health probes and leaves already queued entries unsen
   assert.equal(requests, 0);
   assert.equal(storage.records.has(key), true);
 });
+
+test('the scoped ranking writer verifies the credential and submits anonymous starts', async () => {
+  const scoped = {
+    ...env, RANKING_API_KEY: undefined, RANKING_PUBLISHABLE_KEY: 'sb_publishable_test',
+    RANKING_INGEST_KEY: 'a'.repeat(64),
+  };
+  const requests = [];
+  const sender = async (url, req) => {
+    const writer = url.pathname.endsWith('/submit_songen3_online_event');
+    assert.equal(req.headers.apikey, scoped.RANKING_PUBLISHABLE_KEY);
+    assert.equal(req.headers['X-Songen3-Ranking-Key'], writer ? scoped.RANKING_INGEST_KEY : undefined);
+    assert.equal(req.headers.Authorization, undefined);
+    requests.push([url.pathname, JSON.parse(req.body)]);
+    return writer ? Response.json(true) : Response.json([{ total_play_count: 2, player_count: 0 }]);
+  };
+  const storage = createStorage();
+  const [key, item] = queueRankingEvent(event);
+  storage.records.set(key, item);
+  assert.equal(await rankingReady(scoped, sender), true);
+  assert.deepEqual(await flushRankingEvents(storage, scoped, sender), { configured: true });
+  assert.deepEqual(requests.map(r => r[1]), [{ p_event: null }, {}, { p_event: event }]);
+  assert.equal(storage.records.size, 0);
+
+  assert.equal(await rankingReady(scoped, async () => new Response(null, { status: 403 })), false);
+});
