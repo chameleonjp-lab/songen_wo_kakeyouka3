@@ -13,6 +13,7 @@ import {
 } from '../game/protocol.js';
 import { createMatchClock } from './clock.js';
 import { RoomSession } from './room.js';
+import { RoomDirectory, directoryStub, openUntil, stageListing } from './room-directory.js';
 import { flushRankingEvents, queueRankingEvent, rankingConfigured, rankingReady, rankingsPublic, RANKING_PREFIX } from './ranking.js';
 
 const encoder = new TextEncoder();
@@ -99,23 +100,36 @@ export default {
     if (!origin) return reject('credentials');
     const cors = {
       'Access-Control-Allow-Origin': origin,
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
       Vary: 'Origin',
     };
-    const create = url.pathname === '/v1/rooms';
+    const collection = url.pathname === '/v1/rooms';
+    const list = collection && request.method === 'GET';
+    const create = collection && request.method === 'POST';
     const path = url.pathname.match(/^\/v1\/rooms\/([^/]{1,24})\/(join|leave|socket)$/);
     const code = path && normalizeCode(path[1]);
-    if (!create && !code) return reject('expired', cors);
+    if (!collection && !code) return reject('expired', cors);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     const socket = path?.[2] === 'socket';
     if (socket ? request.method !== 'GET' || request.headers.get('Upgrade')?.toLowerCase() !== 'websocket'
-      : request.method !== 'POST') return reject('invalid', cors);
+      : !list && request.method !== 'POST') return reject('invalid', cors);
     if (create && !canCreate(env)) return reject('unavailable', cors);
     const address = request.headers.get('CF-Connecting-IP') ?? 'local';
     const limiter = env.ENTRY_LIMIT.getByName(await digest('entry', address));
-    const allowance = await limiter.fetch(`https://limit.internal/${socket ? 'socket' : 'registration'}`);
+    const bucket = list ? 'discovery' : socket ? 'socket' : 'registration';
+    const allowance = await limiter.fetch(`https://limit.internal/${bucket}`);
     if (!allowance.ok) return reject('rate_limit', cors);
+    if (list) {
+      const target = new URL('https://entry.internal/open-rooms');
+      const exclude = url.searchParams.get('exclude');
+      if (isShortCode(exclude)) target.searchParams.set('exclude', exclude);
+      try {
+        const response = await directoryStub(env).fetch(target.href);
+        if (response.ok) return reply(await response.json(), 200, cors);
+      } catch { /* A direct invitation can still be used if the index is unavailable. */ }
+      return reject('unavailable', cors);
+    }
     if (socket) {
       return env.MATCH_ROOMS.getByName(code).fetch(request);
     }
@@ -167,7 +181,16 @@ export class EntryLimit {
   }
 
   async fetch(request) {
-    const category = new URL(request.url).pathname;
+    const url = new URL(request.url);
+    const category = url.pathname;
+    if (category === '/open-rooms') {
+      this.directory ??= new RoomDirectory(this.ctx.storage.sql);
+      if (request.method === 'GET') return reply({ rooms: this.directory.list(url.searchParams.get('exclude'), Date.now()) });
+      const { code, expiresAt } = await request.json();
+      if (request.method !== 'PUT' || !isShortCode(code) || !Number.isSafeInteger(expiresAt)) return reject('invalid');
+      this.directory.update(code, expiresAt);
+      return new Response(null, { status: 204 });
+    }
     if (category === '/allocate') {
       const reservation = await request.json();
       const result = this.allocation.then(() => this.allocate(reservation));
@@ -223,6 +246,7 @@ export class MatchRoom {
     this.pendingEvents = [];
     this.timerQueued = false;
     this.retryAt = null;
+    this.listingRetryAt = null;
     this.timer = null;
     this.clock = createMatchClock({
       nowMs: Date.now,
@@ -235,6 +259,11 @@ export class MatchRoom {
       this.session = new RoomSession(stored, { rankingsPublic: rankingsPublic(env) });
       if (rankingConfigured(env) && (await ctx.storage.list({ prefix: RANKING_PREFIX, limit: 1 })).size) {
         this.retryAt = Date.now();
+      }
+      // Reconcile an interrupted write or a waiting room saved before discovery existed.
+      if (stored && (stored.listing?.pending || (!stored.listing && openUntil(stored, Date.now())))) {
+        this.listingRetryAt = Date.now();
+        await this.schedule();
       }
       if (stored && ['playing', 'paused'].includes(this.session.phase)) {
         this.session.recover(Date.now());
@@ -539,6 +568,8 @@ export class MatchRoom {
       });
       if (!unfinished.size) result.rankingStatus = 'sent';
     }
+    const previousListing = this.session.data.listing;
+    stageListing(this.session.data, Date.now());
     const writes = { [persistedKey]: this.session.data };
     for (const event of events) {
       const [key, body] = queueRankingEvent(event);
@@ -551,7 +582,29 @@ export class MatchRoom {
     }
     this.session.drainEvents();
     if (events.length && rankingConfigured(this.env)) this.retryAt ??= Date.now();
+    const listing = this.session.data.listing;
+    if (!listing?.pending) this.listingRetryAt = null;
+    else if (listing !== previousListing || this.listingRetryAt === null || Date.now() >= this.listingRetryAt) {
+      await this.publishListing();
+    }
     await this.schedule();
+  }
+
+  async publishListing() {
+    const data = this.session.data;
+    const { code, expiresAt } = data.listing;
+    this.listingRetryAt = Date.now() + 10_000;
+    await this.schedule();
+    try {
+      const response = await directoryStub(this.env).fetch('https://entry.internal/open-rooms', {
+        method: 'PUT', body: JSON.stringify({ code, expiresAt }),
+      });
+      if (!response.ok) return;
+    } catch { return; }
+    if (expiresAt) data.listing.pending = false;
+    else delete data.listing;
+    await this.ctx.storage.put(persistedKey, data);
+    this.listingRetryAt = null;
   }
 
   async schedule() {
@@ -559,6 +612,7 @@ export class MatchRoom {
     const deadlines = Object.values(data.history).map(item => item.result.expiresAt);
     if (data.code && ['waiting', 'countdown'].includes(data.phase)) deadlines.push(data.expiresAt);
     if (this.retryAt !== null) deadlines.push(this.retryAt);
+    if (this.listingRetryAt !== null) deadlines.push(this.listingRetryAt);
     for (const ws of this.ctx.getWebSockets('auth')) {
       const attachment = ws.deserializeAttachment();
       if (attachment?.deadline && !attachment.closed) deadlines.push(attachment.deadline);
@@ -590,7 +644,7 @@ export class MatchRoom {
       this.retryAt = pending ? (due ? now + RETRY_MS : this.retryAt) : null;
       if (phase !== this.session.phase) {
         await this.transition(phase, now);
-      } else if (historyCount !== Object.keys(this.session.data.history).length) {
+      } else if (historyCount !== Object.keys(this.session.data.history).length || this.listingRetryAt !== null) {
         await this.commit();
       } else {
         await this.schedule();

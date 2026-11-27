@@ -6,11 +6,15 @@ const workerOrigin = 'https://songen3-online.chameleonjp-lab.workers.dev';
 const pagesOrigin = 'https://chameleonjp-lab.github.io';
 const hold = { version: VERSION, roomCodeDigits: 4, acceptingRooms: true, rankingsPublic: false, rankingReady: false };
 
-function responder(health, allowedOrigin = pagesOrigin) {
+function responder(health, allowedOrigin = pagesOrigin, directory = { rooms: [] }) {
   return async (url, init) => {
     expect(url.origin).toBe(workerOrigin);
     if (url.pathname === '/v1/health') return Response.json(health);
     expect(url.pathname).toBe('/v1/rooms');
+    if (init.method === 'GET') {
+      expect(init.headers.Origin).toBe(pagesOrigin);
+      return Response.json(directory, { headers: { 'Access-Control-Allow-Origin': allowedOrigin } });
+    }
     expect(init.method).toBe('OPTIONS');
     expect(init.headers.Origin).toBe(pagesOrigin);
     return new Response(null, { status: 204, headers: { 'Access-Control-Allow-Origin': allowedOrigin } });
@@ -45,5 +49,7 @@ describe('Pages release readiness', () => {
       responder({ ...hold, acceptingRooms: false }))).rejects.toThrow('not accepting');
     await expect(verifyPagesReadiness(workerOrigin, false,
       responder(hold, 'https://other.example'))).rejects.toThrow('allow room requests');
+    await expect(verifyPagesReadiness(workerOrigin, false,
+      responder(hold, pagesOrigin, { code: 'invalid' }))).rejects.toThrow('available room list');
   });
 });
