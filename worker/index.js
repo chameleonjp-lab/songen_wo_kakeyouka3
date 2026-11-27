@@ -13,7 +13,7 @@ import {
 } from '../game/protocol.js';
 import { createMatchClock } from './clock.js';
 import { RoomSession } from './room.js';
-import { flushRankingEvents, queueRankingEvent, rankingReady, rankingsPublic, RANKING_PREFIX } from './ranking.js';
+import { flushRankingEvents, queueRankingEvent, rankingConfigured, rankingReady, rankingsPublic, RANKING_PREFIX } from './ranking.js';
 
 const encoder = new TextEncoder();
 const persistedKey = 'room';
@@ -233,7 +233,7 @@ export class MatchRoom {
     ctx.blockConcurrencyWhile(async () => {
       const stored = await ctx.storage.get(persistedKey);
       this.session = new RoomSession(stored, { rankingsPublic: rankingsPublic(env) });
-      if (rankingsPublic(env) && env.RANKING_API_KEY && (await ctx.storage.list({ prefix: RANKING_PREFIX, limit: 1 })).size) {
+      if (rankingConfigured(env) && (await ctx.storage.list({ prefix: RANKING_PREFIX, limit: 1 })).size) {
         this.retryAt = Date.now();
       }
       if (stored && ['playing', 'paused'].includes(this.session.phase)) {
@@ -550,7 +550,7 @@ export class MatchRoom {
       this.ctx.abort('Could not persist room state');
     }
     this.session.drainEvents();
-    if (events.length && rankingsPublic(this.env) && this.env.RANKING_API_KEY) this.retryAt ??= Date.now();
+    if (events.length && rankingConfigured(this.env)) this.retryAt ??= Date.now();
     await this.schedule();
   }
 
@@ -584,7 +584,7 @@ export class MatchRoom {
           this.drop(ws, 'expired');
         }
       }
-      const pending = rankingsPublic(this.env) && this.env.RANKING_API_KEY &&
+      const pending = rankingConfigured(this.env) &&
         (await this.ctx.storage.list({ prefix: RANKING_PREFIX, limit: 1 })).size > 0;
       const due = pending && (this.retryAt === null || this.retryAt <= now);
       this.retryAt = pending ? (due ? now + RETRY_MS : this.retryAt) : null;

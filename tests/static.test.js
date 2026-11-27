@@ -55,7 +55,7 @@ describe('GitHub Pages output', () => {
     expect(cssResponse.headers.get('content-type')).toContain('text/css');
     const bundle = await scriptResponse.text();
     expect(bundle).toContain(serverUrl);
-    expect(bundle).not.toMatch(/ROOM_CODE_SECRET|RANKING_API_KEY/);
+    expect(bundle).not.toMatch(/ROOM_CODE_SECRET|RANKING_API_KEY|RANKING_INGEST_KEY/);
   });
 
   it('serves the published social card and omits server files and old 3D assets', async () => {

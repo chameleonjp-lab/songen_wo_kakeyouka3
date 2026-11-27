@@ -23,11 +23,12 @@ export async function verifyPagesReadiness(matchOrigin, publishRankings, request
   if (health.roomCodeDigits !== ROOM_CODE_DIGITS) {
     throw new Error(`The Worker must support ${ROOM_CODE_DIGITS}-digit room codes before publishing.`);
   }
-  if (health.rankingsPublic !== publishRankings) {
+  if (typeof health.rankingsPublic !== 'boolean' ||
+      (publishRankings !== undefined && health.rankingsPublic !== publishRankings)) {
     throw new Error('Pages VITE_RANKINGS_PUBLIC and the Worker RANKINGS_PUBLIC must agree.');
   }
   if (health.acceptingRooms !== true) throw new Error('The Worker is not accepting new rooms.');
-  if (publishRankings && health.rankingReady !== true) throw new Error('The ranking service is not ready.');
+  if (health.rankingsPublic && health.rankingReady !== true) throw new Error('The ranking service is not ready.');
 
   const preflight = await request(new URL('/v1/rooms', url), {
     method: 'OPTIONS',
@@ -42,4 +43,5 @@ export async function verifyPagesReadiness(matchOrigin, publishRankings, request
   if (!preflight.ok || preflight.headers.get('access-control-allow-origin') !== pagesOrigin) {
     throw new Error('The Worker must allow room requests from the GitHub Pages origin.');
   }
+  return health.rankingsPublic;
 }

@@ -22,7 +22,7 @@ jobs:
       pages: read
     env:
       VITE_MATCH_SERVER_URL: ${{ vars.VITE_MATCH_SERVER_URL || 'https://songen3-online.chameleonjp-lab.workers.dev' }}
-      VITE_RANKINGS_PUBLIC: ${{ vars.VITE_RANKINGS_PUBLIC || 'false' }}
+      RANKING_PUBLIC_OVERRIDE: ${{ vars.VITE_RANKINGS_PUBLIC }}
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -61,18 +61,24 @@ jobs:
       - name: Run two-player WebKit tests
         run: pnpm test:browser
 
-      - name: Build static site for production
-        run: pnpm build
-
       - name: Verify the production match server before publishing
         run: |
           node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
           import { verifyPagesReadiness } from './scripts/pages-readiness.js';
 
-          const publishRankings = process.env.VITE_RANKINGS_PUBLIC === 'true';
-          await verifyPagesReadiness(process.env.VITE_MATCH_SERVER_URL, publishRankings);
+          const override = process.env.RANKING_PUBLIC_OVERRIDE;
+          if (override && !['true', 'false'].includes(override)) {
+            throw new Error('VITE_RANKINGS_PUBLIC must be true, false, or unset.');
+          }
+          const publishRankings = await verifyPagesReadiness(process.env.VITE_MATCH_SERVER_URL,
+            override ? override === 'true' : undefined);
+          appendFileSync(process.env.GITHUB_ENV, `VITE_RANKINGS_PUBLIC=${publishRankings}\n`);
           console.log(publishRankings ? 'Match server and rankings are ready.' : 'Match server is ready. Rankings are on hold.');
           NODE
+
+      - name: Build static site for production
+        run: pnpm build
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5

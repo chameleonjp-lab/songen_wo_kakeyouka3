@@ -19,7 +19,15 @@ function responder(health, allowedOrigin = pagesOrigin) {
 
 describe('Pages release readiness', () => {
   it('allows playable production with rankings on hold', async () => {
-    await expect(verifyPagesReadiness(workerOrigin, false, responder(hold))).resolves.toBeUndefined();
+    await expect(verifyPagesReadiness(workerOrigin, false, responder(hold))).resolves.toBe(false);
+  });
+
+  it('uses a healthy public Worker setting when no override is configured', async () => {
+    await expect(verifyPagesReadiness(workerOrigin, undefined, responder(hold))).resolves.toBe(false);
+    await expect(verifyPagesReadiness(workerOrigin, undefined,
+      responder({ ...hold, rankingsPublic: true, rankingReady: true }))).resolves.toBe(true);
+    await expect(verifyPagesReadiness(workerOrigin, undefined,
+      responder({ ...hold, rankingsPublic: true }))).rejects.toThrow('ranking service');
   });
 
   it('blocks mismatched or unhealthy ranking publication', async () => {
@@ -27,7 +35,7 @@ describe('Pages release readiness', () => {
     const publicRankings = { ...hold, rankingsPublic: true };
     await expect(verifyPagesReadiness(workerOrigin, true, responder(publicRankings))).rejects.toThrow('ranking service');
     await expect(verifyPagesReadiness(workerOrigin, true,
-      responder({ ...publicRankings, rankingReady: true }))).resolves.toBeUndefined();
+      responder({ ...publicRankings, rankingReady: true }))).resolves.toBe(true);
   });
 
   it('requires compatible, reachable rooms even during the ranking hold', async () => {
