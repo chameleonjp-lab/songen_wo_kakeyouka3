@@ -18,7 +18,12 @@ async function hostRoom(page, capture) {
   await page.goto("./");
   await page.locator("#language").selectOption("ja");
   const home = view(page, "home");
-  await expect(home.locator("#home-actions > :visible")).toHaveText(["ゲームの準備", /ルール説明/, "Xにシェア", "ランキング"]);
+  await expect(home.locator("#home-actions > :visible")).toHaveText([
+    "ゲームの準備(オンライン対戦)", /ルール説明/, "Xにシェア", "ランキング", "CPUと戦う", "CPUと連続試合"
+  ]);
+  await expect(home.locator("[data-i18n='intro']")).toHaveText("尊厳を賭けるのに距離なんて関係ない！");
+  await expect(home.locator("#home-cpu")).toHaveAttribute("href", "https://chameleonjp-lab.github.io/songen_wo_kakeyouka/");
+  await expect(home.locator("#home-cpu-series")).toHaveAttribute("href", "https://chameleonjp-lab.github.io/songen_wo_kakeyouka2/");
   await expect(home.locator("#open-keyboard-settings")).toBeHidden();
   await expect(home.locator(".ranking")).toBeVisible();
   await expect(home.locator(".ranking")).toHaveAttribute("href", /ranking\.html\?game=songen_wo_kakeyouka3_online$/);
@@ -37,7 +42,7 @@ async function hostRoom(page, capture) {
   await page.setViewportSize({ width: 390, height: 844 });
   await capture(page, "01-home-390x844");
   await page.setViewportSize({ width: 402, height: 700 });
-  await page.getByRole("button", { name: "ゲームの準備" }).click();
+  await page.getByRole("button", { name: "ゲームの準備(オンライン対戦)" }).click();
   await expect(view(page, "register")).toBeVisible();
   await page.locator("#player-name").fill("<ほすと>");
   await page.locator("[data-face-id='12']").click();

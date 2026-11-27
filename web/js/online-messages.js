@@ -15,100 +15,100 @@ const shareKeys = ["scoreText"];
 
 const interfaceText = {
   ja: [
-    "友だちと一対一。拳で相手の心臓を狙え！", "ゲームの準備", "プレイヤー登録", "プレイヤー名（任意）", "顔を選ぶ",
+    "尊厳を賭けるのに距離なんて関係ない！", "ゲームの準備(オンライン対戦)", "プレイヤー登録", "プレイヤー名（任意）", "顔を選ぶ",
     "ルームを立てる", "ルームID", "IDをコピー", "待機室へ", "待機室", "準備完了", "ホーム", "プレイヤー{p0}", "あなた",
     "相手を待っています", "二人が準備完了すると対戦が始まります", "接続しています…", "再接続しています…",
     "対戦を一時停止しました。接続の復帰を待っています（残り{p0}秒）", "降参", "降参すると相手の勝ちになります。降参しますか？",
     "結果発表", "スコア結果へ", "スコア結果", "ルームに戻る", "拳", "ガード", "左に移動", "右に移動", "スタミナ", "顔 {p0}"
   ],
   en: [
-    "Aim for the heart. Fight a friend online with emoji.", "Set up game", "Player registration", "Player name (optional)", "Choose a face",
+    "Distance means nothing when dignity is on the line!", "Set up game (online match)", "Player registration", "Player name (optional)", "Choose a face",
     "Create a room", "Room ID", "Copy ID", "Enter lobby", "Lobby", "Ready", "Home", "Player {p0}", "You",
     "Waiting for your opponent", "The match starts when both players are ready", "Connecting…", "Reconnecting…",
     "Match paused. Waiting for reconnection ({p0}s left)", "Surrender", "Your opponent wins if you surrender. Surrender now?",
     "Match result", "View score", "Score result", "Return to room", "Punch", "Guard", "Move left", "Move right", "Stamina", "Face {p0}"
   ],
   es: [
-    "Apunta al corazón. Lucha en línea con un amigo usando emojis.", "Preparar partida", "Registro de jugador", "Nombre (opcional)", "Elige una cara",
+    "¡La distancia no importa cuando te juegas la dignidad!", "Preparar partida (en línea)", "Registro de jugador", "Nombre (opcional)", "Elige una cara",
     "Crear sala", "ID de sala", "Copiar ID", "Ir a la sala de espera", "Sala de espera", "Listo", "Inicio", "Jugador {p0}", "Tú",
     "Esperando al rival", "La partida comienza cuando ambos estén listos", "Conectando…", "Reconectando…",
     "Partida en pausa. Esperando reconexión (quedan {p0} s)", "Rendirse", "Si te rindes, tu rival gana. ¿Te rindes?",
     "Resultado de la partida", "Ver puntuación", "Puntuación final", "Volver a la sala", "Puño", "Bloqueo", "Mover a la izquierda", "Mover a la derecha", "Resistencia", "Cara {p0}"
   ],
   "pt-BR": [
-    "Mire no coração. Enfrente um amigo online com emojis.", "Preparar partida", "Cadastro de jogador", "Nome (opcional)", "Escolha um rosto",
+    "A distância não importa quando a dignidade está em jogo!", "Preparar partida (online)", "Cadastro de jogador", "Nome (opcional)", "Escolha um rosto",
     "Criar sala", "ID da sala", "Copiar ID", "Entrar na sala de espera", "Sala de espera", "Pronto", "Início", "Jogador {p0}", "Você",
     "Aguardando o adversário", "A partida começa quando os dois estiverem prontos", "Conectando…", "Reconectando…",
     "Partida pausada. Aguardando reconexão (faltam {p0} s)", "Desistir", "Se você desistir, o adversário ganha. Quer desistir?",
     "Resultado da partida", "Ver pontuação", "Pontuação final", "Voltar à sala", "Soco", "Defesa", "Mover à esquerda", "Mover à direita", "Energia", "Rosto {p0}"
   ],
   "zh-Hans": [
-    "用拳头瞄准心脏，和朋友用表情符号在线对战。", "准备游戏", "玩家登记", "玩家名（选填）", "选择头像", "创建房间", "房间 ID", "复制 ID", "进入等候室",
+    "赌上尊严，距离根本不是问题！", "准备游戏（在线对战）", "玩家登记", "玩家名（选填）", "选择头像", "创建房间", "房间 ID", "复制 ID", "进入等候室",
     "等候室", "准备就绪", "首页", "玩家 {p0}", "你", "正在等待对手", "双方准备就绪后开始对战", "正在连接…", "正在重新连接…",
     "对战已暂停，等待重新连接（剩余 {p0} 秒）", "认输", "认输后对手获胜。确定认输吗？", "对战结果", "查看得分", "得分结果", "返回房间", "出拳", "格挡", "向左移动", "向右移动", "体力", "头像 {p0}"
   ],
   fr: [
-    "Vise le cœur. Affronte un ami en ligne avec des émojis.", "Préparer la partie", "Inscription du joueur", "Nom (facultatif)", "Choisir un visage",
+    "La distance ne compte pas quand la dignité est en jeu !", "Préparer la partie (en ligne)", "Inscription du joueur", "Nom (facultatif)", "Choisir un visage",
     "Créer un salon", "Identifiant du salon", "Copier l’identifiant", "Entrer en salle d’attente", "Salle d’attente", "Prêt", "Accueil", "Joueur {p0}", "Toi",
     "En attente de ton adversaire", "La partie commence quand les deux joueurs sont prêts", "Connexion…", "Reconnexion…",
     "Partie en pause. En attente de reconnexion (reste {p0} s)", "Abandonner", "Ton adversaire gagne si tu abandonnes. Abandonner ?",
     "Résultat de la partie", "Voir le score", "Score final", "Retour au salon", "Poing", "Garde", "Aller à gauche", "Aller à droite", "Endurance", "Visage {p0}"
   ],
   de: [
-    "Ziel aufs Herz. Kämpfe online mit Emojis gegen einen Freund.", "Spiel vorbereiten", "Spieleranmeldung", "Spielername (optional)", "Gesicht wählen",
+    "Entfernung spielt keine Rolle, wenn die Würde auf dem Spiel steht!", "Spiel vorbereiten (online)", "Spieleranmeldung", "Spielername (optional)", "Gesicht wählen",
     "Raum erstellen", "Raum-ID", "ID kopieren", "Zum Warteraum", "Warteraum", "Bereit", "Startseite", "Spieler {p0}", "Du",
     "Warte auf deinen Gegner", "Das Spiel beginnt, sobald beide bereit sind", "Verbindung wird hergestellt…", "Verbindung wird wiederhergestellt…",
     "Spiel pausiert. Warte auf die Wiederverbindung (noch {p0} s)", "Aufgeben", "Wenn du aufgibst, gewinnt dein Gegner. Wirklich aufgeben?",
     "Spielergebnis", "Punktzahl ansehen", "Endpunktzahl", "Zurück zum Raum", "Faust", "Blocken", "Nach links bewegen", "Nach rechts bewegen", "Ausdauer", "Gesicht {p0}"
   ],
   ko: [
-    "주먹으로 심장을 노려라. 친구와 이모지로 온라인 대전!", "게임 준비", "플레이어 등록", "플레이어 이름 (선택)", "얼굴 고르기", "방 만들기", "방 ID",
+    "존엄을 거는 데 거리는 상관없다!", "게임 준비 (온라인 대전)", "플레이어 등록", "플레이어 이름 (선택)", "얼굴 고르기", "방 만들기", "방 ID",
     "ID 복사", "대기실 입장", "대기실", "준비 완료", "홈", "플레이어 {p0}", "나", "상대를 기다리는 중", "두 사람 모두 준비하면 대전이 시작됩니다",
     "연결 중…", "다시 연결 중…", "대전을 일시 정지했습니다. 연결 대기 중 ({p0}초 남음)", "항복", "항복하면 상대가 승리합니다. 항복할까요?",
     "대전 결과", "점수 보기", "점수 결과", "방으로 돌아가기", "주먹", "방어", "왼쪽으로 이동", "오른쪽으로 이동", "체력", "얼굴 {p0}"
   ],
   ru: [
-    "Целься в сердце. Сразись с другом онлайн с помощью эмодзи.", "Подготовить игру", "Регистрация игрока", "Имя (необязательно)", "Выбрать лицо",
+    "Расстояние не имеет значения, когда на кону достоинство!", "Подготовить игру (онлайн)", "Регистрация игрока", "Имя (необязательно)", "Выбрать лицо",
     "Создать комнату", "Код комнаты", "Копировать код", "Войти в зал ожидания", "Зал ожидания", "Готов", "Главная", "Игрок {p0}", "Вы",
     "Ожидание соперника", "Матч начнётся, когда оба игрока будут готовы", "Подключение…", "Переподключение…",
     "Матч приостановлен. Ждём подключения (осталось {p0} с)", "Сдаться", "Если вы сдадитесь, соперник победит. Сдаться?",
     "Итоги матча", "Посмотреть очки", "Итоговые очки", "Вернуться в комнату", "Удар", "Блок", "Двигаться влево", "Двигаться вправо", "Выносливость", "Лицо {p0}"
   ],
   it: [
-    "Mira al cuore. Sfida un amico online con le emoji.", "Prepara la partita", "Registrazione giocatore", "Nome (facoltativo)", "Scegli un volto",
+    "La distanza non conta quando è in gioco la dignità!", "Prepara la partita (online)", "Registrazione giocatore", "Nome (facoltativo)", "Scegli un volto",
     "Crea una stanza", "ID stanza", "Copia ID", "Entra in sala d’attesa", "Sala d’attesa", "Pronto", "Home", "Giocatore {p0}", "Tu",
     "In attesa dell’avversario", "La partita inizia quando entrambi sono pronti", "Connessione…", "Riconnessione…",
     "Partita in pausa. In attesa della riconnessione (restano {p0} s)", "Arrenditi", "Se ti arrendi, vince l’avversario. Arrendersi?",
     "Risultato della partita", "Vedi punteggio", "Punteggio finale", "Torna alla stanza", "Pugno", "Parata", "Vai a sinistra", "Vai a destra", "Resistenza", "Volto {p0}"
   ],
   "zh-Hant": [
-    "用拳頭瞄準心臟，和朋友用表情符號線上對戰。", "準備遊戲", "玩家登記", "玩家名稱（選填）", "選擇頭像", "建立房間", "房間 ID", "複製 ID", "進入等候室",
+    "賭上尊嚴，距離根本不是問題！", "準備遊戲（線上對戰）", "玩家登記", "玩家名稱（選填）", "選擇頭像", "建立房間", "房間 ID", "複製 ID", "進入等候室",
     "等候室", "準備就緒", "首頁", "玩家 {p0}", "你", "正在等候對手", "雙方準備就緒後開始對戰", "正在連線…", "正在重新連線…",
     "對戰已暫停，等候重新連線（剩餘 {p0} 秒）", "認輸", "認輸後對手獲勝。確定認輸嗎？", "對戰結果", "查看分數", "分數結果", "返回房間", "出拳", "格擋", "向左移動", "向右移動", "體力", "頭像 {p0}"
   ],
   id: [
-    "Bidik jantungnya. Lawan teman secara daring dengan emoji.", "Siapkan permainan", "Pendaftaran pemain", "Nama (opsional)", "Pilih wajah",
+    "Jarak tak berarti saat harga diri dipertaruhkan!", "Siapkan pertandingan (daring)", "Pendaftaran pemain", "Nama (opsional)", "Pilih wajah",
     "Buat ruang", "ID ruang", "Salin ID", "Masuk ruang tunggu", "Ruang tunggu", "Siap", "Beranda", "Pemain {p0}", "Kamu",
     "Menunggu lawan", "Pertandingan dimulai saat kedua pemain siap", "Menghubungkan…", "Menghubungkan kembali…",
     "Pertandingan dijeda. Menunggu sambungan (sisa {p0} dtk)", "Menyerah", "Lawan menang jika kamu menyerah. Mau menyerah?",
     "Hasil pertandingan", "Lihat skor", "Skor akhir", "Kembali ke ruang", "Pukul", "Tangkis", "Bergerak ke kiri", "Bergerak ke kanan", "Stamina", "Wajah {p0}"
   ],
   tr: [
-    "Kalbi hedefle. Bir arkadaşınla emojilerle çevrimiçi dövüş.", "Oyunu hazırla", "Oyuncu kaydı", "Oyuncu adı (isteğe bağlı)", "Yüz seç",
+    "Onurun söz konusuysa mesafenin önemi yok!", "Oyunu hazırla (çevrimiçi maç)", "Oyuncu kaydı", "Oyuncu adı (isteğe bağlı)", "Yüz seç",
     "Oda oluştur", "Oda kodu", "Kodu kopyala", "Bekleme odasına gir", "Bekleme odası", "Hazır", "Ana sayfa", "Oyuncu {p0}", "Sen",
     "Rakip bekleniyor", "İki oyuncu da hazır olunca maç başlar", "Bağlanıyor…", "Yeniden bağlanıyor…",
     "Maç duraklatıldı. Bağlantı bekleniyor ({p0} sn kaldı)", "Pes et", "Pes edersen rakibin kazanır. Pes etmek istiyor musun?",
     "Maç sonucu", "Skoru gör", "Son skor", "Odaya dön", "Yumruk", "Savunma", "Sola hareket et", "Sağa hareket et", "Dayanıklılık", "Yüz {p0}"
   ],
   vi: [
-    "Nhắm vào trái tim. Đấu trực tuyến với bạn bè bằng emoji.", "Chuẩn bị trò chơi", "Đăng ký người chơi", "Tên (không bắt buộc)", "Chọn khuôn mặt",
+    "Khi danh dự bị đặt cược, khoảng cách chẳng là gì!", "Chuẩn bị đấu (trực tuyến)", "Đăng ký người chơi", "Tên (không bắt buộc)", "Chọn khuôn mặt",
     "Tạo phòng", "Mã phòng", "Sao chép mã", "Vào phòng chờ", "Phòng chờ", "Sẵn sàng", "Trang chủ", "Người chơi {p0}", "Bạn",
     "Đang chờ đối thủ", "Trận đấu bắt đầu khi cả hai đã sẵn sàng", "Đang kết nối…", "Đang kết nối lại…",
     "Trận đấu tạm dừng. Đang chờ kết nối lại (còn {p0} giây)", "Đầu hàng", "Nếu bạn đầu hàng, đối thủ sẽ thắng. Bạn muốn đầu hàng?",
     "Kết quả trận đấu", "Xem điểm", "Điểm cuối trận", "Quay lại phòng", "Đấm", "Đỡ đòn", "Di chuyển sang trái", "Di chuyển sang phải", "Thể lực", "Khuôn mặt {p0}"
   ],
   th: [
-    "เล็งหมัดไปที่หัวใจ แล้วสู้กับเพื่อนออนไลน์ด้วยอีโมจิ", "เตรียมเกม", "ลงทะเบียนผู้เล่น", "ชื่อผู้เล่น (ไม่บังคับ)", "เลือกใบหน้า",
+    "เมื่อศักดิ์ศรีเป็นเดิมพัน ระยะทางก็ไม่สำคัญ!", "เตรียมเกม (แข่งออนไลน์)", "ลงทะเบียนผู้เล่น", "ชื่อผู้เล่น (ไม่บังคับ)", "เลือกใบหน้า",
     "สร้างห้อง", "รหัสห้อง", "คัดลอกรหัส", "เข้าห้องรอ", "ห้องรอ", "พร้อม", "หน้าหลัก", "ผู้เล่น {p0}", "คุณ",
     "กำลังรอคู่ต่อสู้", "เกมจะเริ่มเมื่อทั้งสองคนพร้อม", "กำลังเชื่อมต่อ…", "กำลังเชื่อมต่อใหม่…",
     "หยุดเกมชั่วคราว กำลังรอการเชื่อมต่อใหม่ (เหลือ {p0} วิ)", "ยอมแพ้", "ถ้าคุณยอมแพ้ คู่ต่อสู้จะชนะ ต้องการยอมแพ้ไหม",
@@ -304,9 +304,28 @@ const keyboardText = {
   th: ["การตั้งค่า", "เลือกการกระทำแล้วกดปุ่มใหม่ หากปุ่มถูกใช้อยู่ ปุ่มทั้งสองจะสลับกัน", "กดปุ่มใหม่", "โจมตี", "ป้องกัน"]
 };
 
+const cpuKeys = ["cpuMatch", "cpuSeries"];
+const cpuText = {
+  "ja": ["CPUと戦う", "CPUと連続試合"],
+  "en": ["Fight the CPU", "CPU match series"],
+  "es": ["Jugar contra la CPU", "Serie contra la CPU"],
+  "pt-BR": ["Enfrentar a CPU", "Série contra a CPU"],
+  "zh-Hans": ["与电脑对战", "与电脑连续对战"],
+  "fr": ["Affronter le CPU", "Série contre le CPU"],
+  "de": ["Gegen den Computer", "Kampfserie gegen den Computer"],
+  "ko": ["CPU와 대전", "CPU와 연전"],
+  "ru": ["Матч против компьютера", "Серия против компьютера"],
+  "it": ["Sfida la CPU", "Serie contro la CPU"],
+  "zh-Hant": ["與電腦對戰", "與電腦連續對戰"],
+  "id": ["Lawan CPU", "Seri melawan CPU"],
+  "tr": ["Bilgisayara karşı oyna", "Bilgisayara karşı maç serisi"],
+  "vi": ["Đấu với máy", "Đấu liên tiếp với máy"],
+  "th": ["แข่งกับคอมพิวเตอร์", "แข่งต่อเนื่องกับคอมพิวเตอร์"]
+};
+
 export const onlineMessages = Object.fromEntries(Object.keys(interfaceText).map(language => {
-  const keys = [...interfaceKeys, ...statusKeys, ...shareKeys, ...detailKeys, ...roomKeys, ...dignityKeys, ...keyboardKeys];
-  const values = [...interfaceText[language], ...statusText[language], ...shareText[language], ...detailText[language], ...roomText[language], ...dignityText[language], ...keyboardText[language]];
+  const keys = [...interfaceKeys, ...statusKeys, ...shareKeys, ...detailKeys, ...roomKeys, ...dignityKeys, ...keyboardKeys, ...cpuKeys];
+  const values = [...interfaceText[language], ...statusText[language], ...shareText[language], ...detailText[language], ...roomText[language], ...dignityText[language], ...keyboardText[language], ...cpuText[language]];
   if (keys.length !== values.length) throw new Error(`Incomplete translation: ${language}`);
   return [language, Object.fromEntries(keys.map((key, index) => [key, values[index]]))];
 }));
