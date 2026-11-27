@@ -285,9 +285,28 @@ const dignityText = {
   th: ["แชร์ผลบน X", "ฉันทำลายศักดิ์ศรีของ {p0}{p1}", "{p0} ทำลายศักดิ์ศรีของฉัน{p1}", "เล็กน้อย", "อย่างหนัก", "แบบยับเยิน", "จนหมดสิ้น"]
 };
 
+const keyboardKeys = ["keyboardTitle", "keyboardHelp", "keyboardWaiting", "keyAttack", "keyGuard"];
+const keyboardText = {
+  ja: ["設定", "変更する操作を選び、新しいキーを押してください。使用中のキーは入れ替わります。", "新しいキーを押してください。", "攻撃", "防御"],
+  en: ["Settings", "Choose an action and press a key. If it is already in use, the two bindings swap.", "Press a new key.", "Attack", "Guard"],
+  es: ["Ajustes", "Elige una acción y pulsa una tecla. Si ya se usa, las dos teclas se intercambian.", "Pulsa una nueva tecla.", "Ataque", "Defensa"],
+  "pt-BR": ["Configurações", "Escolha uma ação e pressione uma tecla. Se ela já estiver em uso, as duas teclas serão trocadas.", "Pressione uma nova tecla.", "Ataque", "Defesa"],
+  "zh-Hans": ["设置", "选择一个操作并按下新按键。如果按键已被使用，两个按键会互换。", "请按下新按键。", "攻击", "防御"],
+  fr: ["Paramètres", "Choisis une action et appuie sur une touche. Si elle est déjà utilisée, les deux touches sont échangées.", "Appuie sur une nouvelle touche.", "Attaque", "Garde"],
+  de: ["Einstellungen", "Wähle eine Aktion und drücke eine Taste. Ist sie belegt, werden die beiden Tasten getauscht.", "Drücke eine neue Taste.", "Angriff", "Block"],
+  ko: ["설정", "바꿀 동작을 선택하고 새 키를 누르세요. 이미 사용 중인 키라면 두 키가 서로 바뀝니다.", "새 키를 누르세요.", "공격", "방어"],
+  ru: ["Настройки", "Выберите действие и нажмите клавишу. Если она занята, назначения поменяются местами.", "Нажмите новую клавишу.", "Атака", "Защита"],
+  it: ["Impostazioni", "Scegli un’azione e premi un tasto. Se è già in uso, i due tasti si scambiano.", "Premi un nuovo tasto.", "Attacco", "Difesa"],
+  "zh-Hant": ["設定", "選擇一個操作並按下新按鍵。如果按鍵已使用，兩個按鍵會互換。", "請按下新按鍵。", "攻擊", "防禦"],
+  id: ["Pengaturan", "Pilih aksi lalu tekan tombol baru. Jika sudah digunakan, kedua tombol akan bertukar.", "Tekan tombol baru.", "Serang", "Bertahan"],
+  tr: ["Ayarlar", "Bir hareket seçip bir tuşa bas. Tuş kullanılıyorsa iki tuş yer değiştirir.", "Yeni bir tuşa bas.", "Saldırı", "Savunma"],
+  vi: ["Cài đặt", "Chọn thao tác rồi nhấn một phím. Nếu phím đã được dùng, hai phím sẽ đổi chỗ.", "Nhấn một phím mới.", "Tấn công", "Đỡ đòn"],
+  th: ["การตั้งค่า", "เลือกการกระทำแล้วกดปุ่มใหม่ หากปุ่มถูกใช้อยู่ ปุ่มทั้งสองจะสลับกัน", "กดปุ่มใหม่", "โจมตี", "ป้องกัน"]
+};
+
 export const onlineMessages = Object.fromEntries(Object.keys(interfaceText).map(language => {
-  const keys = [...interfaceKeys, ...statusKeys, ...shareKeys, ...detailKeys, ...roomKeys, ...dignityKeys];
-  const values = [...interfaceText[language], ...statusText[language], ...shareText[language], ...detailText[language], ...roomText[language], ...dignityText[language]];
+  const keys = [...interfaceKeys, ...statusKeys, ...shareKeys, ...detailKeys, ...roomKeys, ...dignityKeys, ...keyboardKeys];
+  const values = [...interfaceText[language], ...statusText[language], ...shareText[language], ...detailText[language], ...roomText[language], ...dignityText[language], ...keyboardText[language]];
   if (keys.length !== values.length) throw new Error(`Incomplete translation: ${language}`);
   return [language, Object.fromEntries(keys.map((key, index) => [key, values[index]]))];
 }));
