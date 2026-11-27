@@ -1,11 +1,12 @@
 import {
   AUTH_TIMEOUT_MS, HEARTBEAT_TIMEOUT_MS, MAX_LISTED_ROOMS, PAUSE_BUDGET_MS, RESULT_LIFETIME_MS, ROOM_CODE_DIGITS, VERSION,
-  isKey, isShortCode, normalizeCode
+  isKey, isMatchId, isShortCode, normalizeCode
 } from "../../game/protocol.js";
 
 const SESSION_STORAGE_KEY = "songen3_active_room";
 const RESERVATION_STORAGE_KEY = "songen3_room_request";
 const RANKING_STORAGE_KEY = "songen3_ranking_key";
+const ROOM_EXITS_KEY = "songen3_pending_room_exits";
 const heartbeatInterval = 1000;
 const lobbyReconnectMs = 15000;
 const matchPhases = new Set(["playing", "paused"]);
@@ -75,10 +76,11 @@ export async function listRooms(exclude, signal) {
   return [...new Set(rooms)].slice(0, MAX_LISTED_ROOMS);
 }
 
-export async function registerRoom(kind, { code, name, faceId }) {
+export async function registerRoom(kind, { code, name, faceId, onReserve }) {
   const route = kind === "create" ? "/v1/rooms" : `/v1/rooms/${code}/join`;
   const url = serverUrl(route);
   const seatKey = registrationKey(route);
+  if (kind === "join") onReserve?.({ code, seatKey });
   const body = { seatKey, name, faceId, version: VERSION };
   if (kind === "create") body.roomCodeDigits = ROOM_CODE_DIGITS;
   if (name) body.rankingKey = getRankingKey();
@@ -112,12 +114,44 @@ export async function registerRoom(kind, { code, name, faceId }) {
 export async function leaveRoom(reservation) {
   if (!endpoint || !reservation) return;
   const url = serverUrl(`/v1/rooms/${reservation.code}/leave`);
-  const body = JSON.stringify({ seatKey: reservation.seatKey, version: VERSION });
+  const { seatKey, matchId } = reservation;
+  const body = JSON.stringify({ seatKey, version: VERSION, matchId: matchId ?? undefined });
   const response = await fetch(url, {
     method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true,
     signal: AbortSignal.timeout(8000)
   });
-  if (!response.ok) throw new Error("network");
+  if (!response.ok && response.status !== 403) throw new Error("network");
+}
+
+function pendingRoomExits() {
+  const saved = readSessionObject(ROOM_EXITS_KEY);
+  return Array.isArray(saved) ? saved.filter(exit => normalizeCode(exit?.code) && isKey(exit.seatKey) &&
+    (exit.matchId == null || isMatchId(exit.matchId))) : [];
+}
+
+let roomExits = pendingRoomExits();
+let exitQueue = Promise.resolve();
+
+function rememberRoomExit(reservation) {
+  const { code, seatKey, matchId } = reservation;
+  if (roomExits.some(exit => exit.seatKey === seatKey)) return;
+  roomExits.push({ code, seatKey, matchId });
+  saveSessionObject(ROOM_EXITS_KEY, roomExits);
+}
+
+export function queueRoomExit(reservation, pendingRequest = null) {
+  if (reservation) rememberRoomExit(reservation);
+  exitQueue = exitQueue.then(async () => {
+    const lateReservation = await pendingRequest;
+    if (lateReservation) rememberRoomExit(lateReservation);
+    if (!navigator.onLine || !roomExits.length) return;
+    const attempted = [...roomExits];
+    const results = await Promise.allSettled(attempted.map(leaveRoom));
+    const released = new Set(attempted.filter((_, index) => results[index].status === "fulfilled"));
+    roomExits = roomExits.filter(exit => !released.has(exit));
+    saveSessionObject(ROOM_EXITS_KEY, roomExits.length ? roomExits : null);
+  });
+  return exitQueue;
 }
 
 export function loadSession() {
@@ -271,6 +305,7 @@ export function createMatchClient({ onRoom, onSnapshot, onFinish, onConnection, 
         packet.finalSnapshot?.matchId !== packet.matchId ||
         (packet.reason !== "interrupted" && packet.finalSnapshot.tick < freshestTick)) return;
     if (packet.seat != null && packet.seat !== session.seat) return;
+    if (packet.canReturn === false) session.returnUnavailable = true;
     clearTimeout(authenticationTimer);
     disconnectedAt = 0;
     freshSnapshot = false;
@@ -417,14 +452,12 @@ export function createMatchClient({ onRoom, onSnapshot, onFinish, onConnection, 
       connection = "idle";
       connect();
     },
-    close({ leave = false } = {}) {
-      const sent = leave && send("leave");
+    close() {
       active = false;
       disconnect();
       room = null;
       resetMatch();
       updateConnection("idle");
-      return sent;
     },
     ready() { return send("ready", { ready: true, layout: room?.layout }); },
     manage(type) { return send(type, { layout: room?.layout }); },

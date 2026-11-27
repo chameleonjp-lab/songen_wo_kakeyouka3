@@ -20,6 +20,11 @@ function text(element, value) {
   if (element.textContent !== value) element.textContent = value;
 }
 
+function data(node, key, value) {
+  const next = String(value);
+  if (node.dataset[key] !== next) node.dataset[key] = next;
+}
+
 export function displayName(player, seat) {
   return player?.name || t("player", { p0: seat + 1 });
 }
@@ -48,8 +53,8 @@ export function renderPlayers(container, players, self, mode = "lobby") {
   }
   for (const [index, card] of [...container.children].entries()) {
     const player = players?.[index];
-    card.dataset.local = index === self;
-    card.dataset.present = Boolean(player);
+    data(card, "local", index === self);
+    data(card, "present", Boolean(player));
     text(card.querySelector(".player-face"), player ? faceGlyph(player) : "—");
     text(card.querySelector(".player-name"), displayName(player, index));
     const you = card.querySelector("[data-you]");
@@ -83,12 +88,15 @@ function buildFighter(seat) {
 }
 
 function place(node, x, y) {
-  node.style.left = `${x}px`;
-  node.style.top = `${y}px`;
+  const left = `${x}px`;
+  const top = `${y}px`;
+  if (node.style.left !== left) node.style.left = left;
+  if (node.style.top !== top) node.style.top = top;
 }
 
 function renderFighter(drawing, player, opponent, simulationTimeMs, final) {
-  drawing.root.hidden = !player;
+  const hidden = !player;
+  if (drawing.root.hidden !== hidden) drawing.root.hidden = hidden;
   if (!player) return;
   const { root, name, parts } = drawing;
   const broken = key => player.parts?.[key]?.broken ?? false;
@@ -96,8 +104,8 @@ function renderFighter(drawing, player, opponent, simulationTimeMs, final) {
   const back = front === "right" ? "left" : "right";
 
   if (!final) place(root, player.x, player.y);
-  root.dataset.posture = player.posture;
-  root.dataset.hit = !final && player.hitInvulnerableUntil > simulationTimeMs;
+  data(root, "posture", player.posture);
+  data(root, "hit", !final && player.hitInvulnerableUntil > simulationTimeMs);
   text(name, displayName(player, player.seat));
 
   const shown = {
@@ -118,10 +126,10 @@ function renderFighter(drawing, player, opponent, simulationTimeMs, final) {
     shown[`${back}Foot`] = "";
   }
   for (const [part, node] of Object.entries(parts)) {
-    node.dataset.broken = broken(part);
-    if (player.parts?.[part]) node.dataset.damage = player.parts[part].damage;
-    node.dataset.guard = !final && Boolean(player.guardArm) && part === `${front}Arm`;
-    node.dataset.front = !final && part === `${front}Foot`;
+    data(node, "broken", broken(part));
+    if (player.parts?.[part]) data(node, "damage", player.parts[part].damage);
+    data(node, "guard", !final && Boolean(player.guardArm) && part === `${front}Arm`);
+    data(node, "front", !final && part === `${front}Foot`);
     text(node, shown[part]);
   }
 }
@@ -131,8 +139,8 @@ export function createPhoto(container) {
   container.append(...fighters.map(fighter => fighter.root));
   return {
     render(snapshot) {
-      container.dataset.matchId = snapshot?.matchId ?? "";
-      container.dataset.tick = snapshot?.tick ?? "";
+      data(container, "matchId", snapshot?.matchId ?? "");
+      data(container, "tick", snapshot?.tick ?? "");
       const players = snapshot?.players ?? [];
       fighters.forEach((fighter, index) => renderFighter(fighter, players[index], players[1 - index], snapshot?.simulationTimeMs, true));
     }
@@ -193,8 +201,8 @@ export function createBoard(container) {
     const { players = [], simulationTimeMs } = snapshot ?? {};
     const nextStage = snapshot?.stage ?? DEFAULT_STAGE;
     if (Object.keys(nextStage).some(key => nextStage[key] !== stage[key])) setStage(nextStage);
-    container.dataset.matchId = snapshot?.matchId ?? "";
-    container.dataset.tick = snapshot?.tick ?? "";
+    data(container, "matchId", snapshot?.matchId ?? "");
+    data(container, "tick", snapshot?.tick ?? "");
     fighters.forEach((fighter, index) => renderFighter(fighter, players[index], players[1 - index], simulationTimeMs, false));
     renderFists(snapshot?.projectiles);
   }
