@@ -9,19 +9,28 @@ export function outcomeText(result, seat) {
 
 const limbs = ["leftArm", "rightArm", "leftFoot", "rightFoot"];
 
-export function dignityText(result, seat) {
+export function dignityResult(result, seat) {
   const outcome = result.outcomeBySeat[seat];
-  if (outcome !== "win" && outcome !== "loss") return "";
+  if (outcome !== "win" && outcome !== "loss") return null;
+  const losingSeat = outcome === "win" ? 1 - seat : seat;
+  const parts = result.finalSnapshot?.players?.[losingSeat]?.parts;
+  return {
+    outcome,
+    brokenLimbs: limbs.filter(part => parts?.[part]?.broken).length,
+    headBroken: Boolean(parts?.head?.broken),
+  };
+}
 
+export function dignityText(result, seat) {
+  const details = dignityResult(result, seat);
+  if (!details) return "";
   const opponentSeat = 1 - seat;
-  const won = outcome === "win";
-  const parts = result.finalSnapshot?.players?.[won ? opponentSeat : seat]?.parts;
-  const destroyed = limbs.filter(part => parts?.[part]?.broken).length;
-  const intensity = destroyed ? t(`dignityLevel${destroyed}`) : "";
+  const won = details.outcome === "win";
+  const intensity = details.brokenLimbs ? t(`dignityLevel${details.brokenLimbs}`) : "";
   const text = t(won ? "dignityWin" : "dignityLoss", {
     p0: displayName(result.players?.[opponentSeat], opponentSeat), p1: intensity,
   });
-  return text + (parts?.head?.broken ? (won ? "💪" : "💩💦") : "");
+  return text + (details.headBroken ? (won ? "💪" : "💩💦") : "");
 }
 
 function reasonText(result, seat) {

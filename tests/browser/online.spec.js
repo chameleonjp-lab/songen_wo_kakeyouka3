@@ -14,7 +14,19 @@ async function sharedText(page, button) {
   return text;
 }
 
-async function hostRoom(page, capture) {
+async function recordSounds(page) {
+  await page.evaluate(() => {
+    window.matchSounds = [];
+    const audio = window.SongenAudio;
+    const play = audio.play;
+    audio.play = (kind, details) => {
+      if (["challenger", "win", "loss"].includes(kind)) window.matchSounds.push({ kind, details });
+      play(kind, details);
+    };
+  });
+}
+
+async function hostRoom(page, capture, { enterLobby = true } = {}) {
   await page.goto("./");
   await page.locator("#language").selectOption("ja");
   const home = view(page, "home");
@@ -54,6 +66,7 @@ async function hostRoom(page, capture) {
   await page.locator("#invite-share").scrollIntoViewIfNeeded();
   await expect(page.getByRole("button", { name: "Xでシェア" })).toBeInViewport();
   await capture(page, "02-room-invite");
+  if (!enterLobby) return code;
   await page.getByRole("button", { name: "待機室へ" }).click();
   await expect(page.locator("#lobby-status")).toHaveText("相手を待っています");
   return code;
@@ -63,6 +76,7 @@ test("two independent players can play, reload, keep the final board, and rematc
   const capture = (page, name) => page.screenshot({ path: testInfo.outputPath("screen-" + name + ".png"), scale: "css" });
   await host.setViewportSize({ width: 402, height: 700 });
   const code = await hostRoom(host, capture);
+  await recordSounds(host);
   const guestContext = await browser.newContext({ baseURL, locale: "de-DE", viewport: { width: 402, height: 700 }, isMobile: true, hasTouch: true });
   try {
     const guest = await guestContext.newPage();
@@ -133,6 +147,7 @@ test("two independent players can play, reload, keep the final board, and rematc
     await guest.reload();
     await expect(guest.locator("#game-board")).toHaveAttribute("data-match-id", matchId);
     await expect(guest.locator('[data-control="guardPressed"]')).toBeEnabled();
+    await recordSounds(guest);
     await expect(part(guest, "game-board", 1, "leftArm")).toHaveAttribute("data-broken", "true");
     await guest.setViewportSize({ width: 700, height: 402 });
     for (const control of await guest.locator("[data-control]").all()) await expect(control).toBeInViewport();
@@ -148,6 +163,11 @@ test("two independent players can play, reload, keep the final board, and rematc
     await expect(host.locator("#announcement-outcome")).toHaveText("勝利");
     await expect(host.locator("#announcement-reason")).toHaveText("Gastの尊厳を少し破壊した");
     await expect(guest.locator("#announcement-reason")).toHaveText("<ほすと> hat meine Würde ein wenig zerstört");
+    for (const [page, outcome] of [[host, "win"], [guest, "loss"]]) {
+      expect(await page.evaluate(kind => window.matchSounds.filter(cue => cue.kind === kind), outcome)).toEqual([
+        { kind: outcome, details: { outcome, brokenLimbs: 1, headBroken: false } },
+      ]);
+    }
     await expect(part(host, "final-board", 1, "leftArm")).toHaveAttribute("data-broken", "true");
     await expect(part(guest, "final-board", 1, "leftArm")).toHaveAttribute("data-broken", "true");
     const tick = await host.locator("#final-board").getAttribute("data-tick");
@@ -202,15 +222,22 @@ test("two independent players can play, reload, keep the final board, and rematc
 });
 
 test("only the owner can swap or remove a guest, and the guest can clear a remembered ID", async ({ page: host, browser, baseURL }) => {
-  const code = await hostRoom(host, async () => {});
+  const code = await hostRoom(host, async () => {}, { enterLobby: false });
+  await recordSounds(host);
   const guestContext = await browser.newContext({ baseURL, locale: "ja-JP", viewport: { width: 402, height: 700 }, isMobile: true });
   try {
     const guest = await guestContext.newPage();
     await guest.goto("./");
     await guest.locator("#prepare").click();
+    await recordSounds(guest);
     await guest.locator("#player-name").fill("花子");
     await guest.getByRole("button", { name: `ルーム ${code} に参加` }).click();
     await expect(view(guest, "lobby")).toBeVisible();
+    const challengerCount = page => page.evaluate(() => window.matchSounds.filter(cue => cue.kind === "challenger").length);
+    await expect.poll(() => challengerCount(host)).toBe(1);
+    await expect.poll(() => challengerCount(guest)).toBe(1);
+    await expect(view(host, "register")).toBeVisible();
+    await host.locator("#enter-lobby").click();
     await expect(guest.locator("#owner-actions")).toBeHidden();
     await guest.locator("#ready").click();
     await expect(host.locator("#lobby-players [data-seat='1'] [data-ready]")).toBeVisible();
@@ -218,6 +245,7 @@ test("only the owner can swap or remove a guest, and the guest can clear a remem
     await host.locator("#swap-seats").click();
     await expect(host.locator("#lobby-players [data-local=true]")).toHaveAttribute("data-seat", "1");
     await expect(guest.locator("#lobby-players [data-local=true]")).toHaveAttribute("data-seat", "0");
+    expect(await challengerCount(host)).toBe(1);
     await expect(guest.locator("#ready")).toBeEnabled();
     await host.locator("#kick-guest").click();
     await expect(view(guest, "register")).toBeVisible();
@@ -229,6 +257,7 @@ test("only the owner can swap or remove a guest, and the guest can clear a remem
     await expect(guest.getByRole("button", { name: `ルーム ${code} に参加` })).toBeVisible();
     await guest.locator("#join-button").click();
     await expect(guest.locator("#lobby-players [data-local=true]")).toHaveAttribute("data-seat", "0");
+    await expect.poll(() => challengerCount(host)).toBe(2);
     await guest.locator("#leave-lobby").click();
     await expect(view(guest, "register")).toBeVisible();
     await expect(guest.locator("#join-code")).toHaveValue(code);
@@ -250,6 +279,19 @@ test("only the owner can swap or remove a guest, and the guest can clear a remem
   } finally {
     await guestContext.close();
   }
+});
+
+test("an expired invitation closes the preview and allows the owner to create again", async ({ page }) => {
+  let socket;
+  await page.routeWebSocket("**/v1/rooms/*/socket", route => { socket = route; });
+  await hostRoom(page, async () => {}, { enterLobby: false });
+  await expect(page.locator("#create-room")).toBeDisabled();
+  await expect.poll(() => Boolean(socket)).toBe(true);
+  socket.send(JSON.stringify({ type: "error", code: "expired" }));
+  await expect(view(page, "register")).toBeVisible();
+  await expect(page.locator("#created-room")).toBeHidden();
+  await expect(page.locator("#create-room")).toBeEnabled();
+  await expect(page.locator("#register-status")).toHaveText("ルームの有効期限が切れました。");
 });
 
 test("cancelling while the server accepts a join releases the seat before retry", async ({ page: host, browser, baseURL }) => {
