@@ -404,6 +404,7 @@ export function createMatchClient({ onRoom, onSnapshot, onFinish, onConnection, 
 
   return {
     open(reservation) {
+      if (active && session === reservation) return;
       disconnect();
       room = null;
       resetMatch();

@@ -5,7 +5,7 @@ import { clearReservation, createMatchClient, leaveRoom, loadSession, readStorag
 import { $, FACES, createBoard, createPhoto, renderHud, renderPlayers, timeLeft } from "./view.js";
 import { createKeyboardSettings } from "./keyboard.js";
 import { createRoomList } from "./room-list.js";
-import { dignityText, formatScore, outcomeText, showAnnouncement, showScore } from "./result-view.js";
+import { dignityResult, dignityText, formatScore, outcomeText, showAnnouncement, showScore } from "./result-view.js";
 
 const publicUrl = "https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/";
 const rankingUrl = "https://chameleonjp-lab.github.io/chameleonjp_lab/ranking.html?game=songen_wo_kakeyouka3_online";
@@ -235,6 +235,7 @@ function refreshLanguage() {
 
 function activateRoom() {
   if (!session) return;
+  audio.unlock();
   registerStatus = "";
   copyStatus = "";
   ownLobbyStatus = "";
@@ -286,6 +287,7 @@ async function register(kind, listedCode) {
     return;
   }
   const name = $("#player-name").value.trim();
+  audio.unlock();
   if (kind === "join" && !listedCode) saveJoinCode(code);
   const attempt = ++registrationAttempt;
   writeStorage(browserNameKey, name);
@@ -301,12 +303,16 @@ async function register(kind, listedCode) {
     registerStatus = "";
     if (session?.code && session.code !== reservation.code) leaveRoom(session).catch(() => {});
     session = reservation;
+    session.hadOpponent = false;
     saveSession(session);
     if (kind === "join") {
       $("#join-code").value = code;
       if (listedCode) saveJoinCode(code);
       activateRoom();
-    } else refreshRegister();
+    } else {
+      refreshRegister();
+      client.open(session);
+    }
   } catch (error) {
     if (attempt !== registrationAttempt) return;
     registerStatus = error instanceof TypeError || error.name === "AbortError" ? "network" : error.message;
@@ -328,6 +334,9 @@ function onRoom(packet, previous) {
   if (ownLobbyStatus !== "opponentLeft" || packet.players[1 - session.seat]) ownLobbyStatus = "";
   if (readyPending && packet.players[session.seat]?.ready) readyPending = false;
   if (["waiting", "countdown"].includes(packet.phase)) {
+    const hasOpponent = Boolean(packet.players[1 - packet.seat]);
+    if (hasOpponent && session.hadOpponent === false) audio.play("challenger");
+    session.hadOpponent = hasOpponent;
     if (previous?.players[1 - previous.seat] && !packet.players[1 - session.seat] && !returnPending) ownLobbyStatus = "opponentLeft";
     result = null;
     delete session.result;
@@ -339,7 +348,10 @@ function onRoom(packet, previous) {
     returnPending = false;
     warningSecond = null;
     gameBoard.clearEffects();
-    showScreen("lobby");
+    if (shown === "register" && ownsRoom() && packet.phase === "waiting") {
+      saveSession(session);
+      refreshRegister();
+    } else showScreen("lobby");
   }
   if (["playing", "paused"].includes(packet.phase)) {
     if (packet.phase !== "playing") clearControls();
@@ -371,10 +383,10 @@ function onFinish(final, duplicate, events) {
   session.result = final;
   saveSession(session);
   forfeitPending = false;
-  const outcome = final.outcomeBySeat[session.seat];
   if (!duplicate && !alreadyShown) {
     gameBoard.playEvents(events);
-    if (outcome === "win" || outcome === "loss") audio.play(outcome);
+    const details = dignityResult(final, session.seat);
+    if (details) audio.play(details.outcome, details);
   }
   showScreen(shown === "score" ? "score" : "announcement");
 }
@@ -685,7 +697,7 @@ function start() {
     if (result) showScreen(saved.screen === "score" ? "score" : "announcement");
     else if (saved.screen === "register") showScreen("register");
     else showScreen(saved.screen === "game" ? "game" : "lobby");
-    if (saved.screen !== "register") client.open(saved);
+    if (saved.screen !== "register" || ownsRoom()) client.open(saved);
   } else if (invite) {
     if (saved && ["register", "lobby"].includes(saved.screen)) leaveRoom(saved).catch(() => {});
     saveSession(null);
