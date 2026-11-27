@@ -50,6 +50,7 @@ a.button { text-decoration: none; }
 button:disabled { opacity: .52; cursor: default; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .primary { background: linear-gradient(#f7d66b, #d59b2e); color: #211709; border-color: #ffffff59; font-weight: 800; }
+.x-share { background: #000; color: #fff; border-color: #ffffff59; }
 .danger { background: #50292f; }
 .back { color: var(--muted); background: transparent; }
 button.back { justify-self: start; }
