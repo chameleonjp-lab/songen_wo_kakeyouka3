@@ -10,14 +10,14 @@
   <meta property="og:title" content="尊厳を賭けようか3">
   <meta property="og:description" content="友だちと一対一。拳で相手の心臓を狙え！">
   <meta property="og:url" content="https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/">
-  <meta property="og:image" content="https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/assets/social-card.png">
+  <meta property="og:image" content="https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/assets/social-duel-20261127.jpg">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="尊厳を賭けようか3。絵文字の頭・心臓・腕・脚・羽を持つ2人の対戦。">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="尊厳を賭けようか3">
   <meta name="twitter:description" content="友だちと一対一。拳で相手の心臓を狙え！">
-  <meta name="twitter:image" content="https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/assets/social-card.png">
+  <meta name="twitter:image" content="https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/assets/social-duel-20261127.jpg">
   <meta name="twitter:image:alt" content="尊厳を賭けようか3。絵文字の頭・心臓・腕・脚・羽を持つ2人の対戦。">
   <title>尊厳を賭けようか3</title>
   <link rel="stylesheet" href="./style.css">
@@ -48,7 +48,7 @@
             </ul>
           </details>
           <a id="home-share" class="button" target="_blank" rel="noopener noreferrer" data-i18n="share">Xにシェア</a>
-          <a class="button ranking" hidden target="_blank" rel="noopener noreferrer" data-i18n="m009">ランキング</a>
+          <a id="home-ranking" class="button ranking" target="_blank" rel="noopener noreferrer" data-i18n="m009">ランキング</a>
         </div>
         <div class="sound-settings">
           <button id="sound-toggle" type="button" aria-pressed="true"></button>
@@ -85,10 +85,13 @@
           <button id="enter-lobby" class="primary" type="button" data-i18n="enter">待機室へ</button>
         </div>
         <form id="join-room" class="stack">
-          <label class="field">
-            <span data-i18n="roomId">ルームID</span>
-            <input id="join-code" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go">
-          </label>
+          <div class="field">
+            <label for="join-code" data-i18n="roomId">ルームID</label>
+            <div class="join-id-field">
+              <input id="join-code" maxlength="4" inputmode="numeric" autocomplete="off" spellcheck="false" enterkeyhint="go">
+              <button id="clear-join-code" type="button" aria-label="ルームIDを消す" data-i18n-aria-label="clearRoomCode" hidden>×</button>
+            </div>
+          </div>
           <button id="join-button" type="submit" data-i18n="m058">参加する</button>
         </form>
         <p id="register-status" class="status" role="status"></p>
@@ -104,7 +107,12 @@
         <p id="lobby-status" class="status" role="status"></p>
         <div id="countdown" class="countdown" role="status" hidden></div>
         <button id="ready" class="primary" type="button" data-i18n="ready">準備完了</button>
-        <button class="back" type="button" data-home data-i18n="home">ホーム</button>
+        <div class="row" id="owner-actions" hidden>
+          <button id="swap-seats" type="button" data-i18n="swapSeats">1Pと2Pを入れ替える</button>
+          <button id="kick-guest" class="danger" type="button" data-i18n="kickGuest">参加者を退出させる</button>
+        </div>
+        <button id="leave-lobby" class="back" type="button" data-i18n="leaveRoom" hidden>ルームから退出</button>
+        <button id="lobby-home" class="back" type="button" data-home data-i18n="home">ホーム</button>
       </div>
     </section>
 
@@ -140,15 +148,14 @@
     </section>
 
     <section class="screen announcement" data-screen="announcement" aria-labelledby="announcement-title" hidden>
-      <div class="panel announcement-layout">
+      <div class="announcement-layout">
         <header>
           <h2 id="announcement-title" data-i18n="announcement">結果発表</h2>
           <strong id="announcement-outcome"></strong>
           <p id="announcement-reason" class="muted"></p>
         </header>
-        <div id="final-players" class="players"></div>
-        <div id="final-board" class="board"></div>
-        <button id="show-score" class="primary" type="button" data-i18n="toScore">スコア結果へ</button>
+        <div id="final-board" class="photo"></div>
+        <button id="show-score" class="primary" type="button" disabled data-i18n="toScore">スコア結果へ</button>
       </div>
     </section>
 

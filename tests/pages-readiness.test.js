@@ -4,7 +4,7 @@ import { verifyPagesReadiness } from '../scripts/pages-readiness.js';
 
 const workerOrigin = 'https://songen3-online.chameleonjp-lab.workers.dev';
 const pagesOrigin = 'https://chameleonjp-lab.github.io';
-const hold = { version: VERSION, acceptingRooms: true, rankingsPublic: false, rankingReady: false };
+const hold = { version: VERSION, roomCodeDigits: 4, acceptingRooms: true, rankingsPublic: false, rankingReady: false };
 
 function responder(health, allowedOrigin = pagesOrigin) {
   return async (url, init) => {

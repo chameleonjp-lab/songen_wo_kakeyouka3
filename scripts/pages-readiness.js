@@ -1,4 +1,4 @@
-import { VERSION } from '../game/protocol.js';
+import { ROOM_CODE_DIGITS, VERSION } from '../game/protocol.js';
 
 const pagesOrigin = 'https://chameleonjp-lab.github.io';
 
@@ -20,6 +20,9 @@ export async function verifyPagesReadiness(matchOrigin, publishRankings, request
   if (!response.ok) throw new Error(`Health check returned HTTP ${response.status}.`);
   const health = await response.json();
   if (health.version !== VERSION) throw new Error(`The Worker must report protocol version ${VERSION}.`);
+  if (health.roomCodeDigits !== ROOM_CODE_DIGITS) {
+    throw new Error(`The Worker must support ${ROOM_CODE_DIGITS}-digit room codes before publishing.`);
+  }
   if (health.rankingsPublic !== publishRankings) {
     throw new Error('Pages VITE_RANKINGS_PUBLIC and the Worker RANKINGS_PUBLIC must agree.');
   }

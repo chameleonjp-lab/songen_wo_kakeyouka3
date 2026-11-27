@@ -95,7 +95,7 @@ function renderFighter(drawing, player, opponent, simulationTimeMs, final) {
   const front = opponent?.x >= player.x ? "right" : "left";
   const back = front === "right" ? "left" : "right";
 
-  place(root, player.x, player.y);
+  if (!final) place(root, player.x, player.y);
   root.dataset.posture = player.posture;
   root.dataset.hit = !final && player.hitInvulnerableUntil > simulationTimeMs;
   text(name, displayName(player, player.seat));
@@ -126,7 +126,20 @@ function renderFighter(drawing, player, opponent, simulationTimeMs, final) {
   }
 }
 
-export function createBoard(container, { final = false } = {}) {
+export function createPhoto(container) {
+  const fighters = [buildFighter(0), buildFighter(1)];
+  container.append(...fighters.map(fighter => fighter.root));
+  return {
+    render(snapshot) {
+      container.dataset.matchId = snapshot?.matchId ?? "";
+      container.dataset.tick = snapshot?.tick ?? "";
+      const players = snapshot?.players ?? [];
+      fighters.forEach((fighter, index) => renderFighter(fighter, players[index], players[1 - index], snapshot?.simulationTimeMs, true));
+    }
+  };
+}
+
+export function createBoard(container) {
   const plane = element("div", "stage-plane");
   const floor = element("div", "ground");
   floor.setAttribute("aria-hidden", "true");
@@ -182,7 +195,7 @@ export function createBoard(container, { final = false } = {}) {
     if (Object.keys(nextStage).some(key => nextStage[key] !== stage[key])) setStage(nextStage);
     container.dataset.matchId = snapshot?.matchId ?? "";
     container.dataset.tick = snapshot?.tick ?? "";
-    fighters.forEach((fighter, index) => renderFighter(fighter, players[index], players[1 - index], simulationTimeMs, final));
+    fighters.forEach((fighter, index) => renderFighter(fighter, players[index], players[1 - index], simulationTimeMs, false));
     renderFists(snapshot?.projectiles);
   }
 

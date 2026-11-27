@@ -11,7 +11,7 @@ const statusKeys = [
   "heart", "double-heart", "timeout", "forfeitReason", "interrupted", "rankingPending"
 ];
 
-const shareKeys = ["inviteText", "scoreText"];
+const shareKeys = ["scoreText"];
 
 const interfaceText = {
   ja: [
@@ -118,92 +118,92 @@ const interfaceText = {
 
 const statusText = {
   ja: [
-    "12文字のルームIDを入力してください。", "ルームIDをコピーしました。", "コピーできませんでした。IDを選択してコピーしてください。", "このルームは満員です。",
+    "4桁のルームIDを入力してください。", "ルームIDをコピーしました。", "コピーできませんでした。IDを選択してコピーしてください。", "このルームは満員です。",
     "ルームの有効期限が切れました。", "ゲームの版が異なります。画面を再読み込みしてください。", "通信できませんでした。接続を確認してください。",
     "この席には接続できません。", "少し待ってからもう一度お試しください。", "ただいま新しいルームを作れません。",
     "接続が切れました。", "相手が退出しました。", "もう一度お試しください。", "入力した内容を確認してください。",
     "心臓への命中", "両者の心臓に同時に命中", "時間切れ", "降参で決着", "通信中断", "ランキングへの反映を待っています。"
   ],
   en: [
-    "Enter the 12-character room ID.", "Room ID copied.", "Couldn’t copy the ID. Select and copy it manually.", "This room is full.",
+    "Enter the 4-digit room ID.", "Room ID copied.", "Couldn’t copy the ID. Select and copy it manually.", "This room is full.",
     "This room has expired.", "Game versions differ. Reload this page.", "Couldn’t connect. Check your connection.", "Couldn’t access this seat.",
     "Wait a moment and try again.", "New rooms are temporarily unavailable.", "Connection lost.", "Your opponent left.", "Please try again.", "Check what you entered.",
     "Heart hit", "Both hearts hit at the same time", "Time ran out", "Match ended by surrender", "Connection interrupted", "Waiting for the leaderboard to update."
   ],
   es: [
-    "Introduce el ID de sala de 12 caracteres.", "ID de sala copiado.", "No se pudo copiar el ID. Selecciónalo y cópialo manualmente.", "La sala está llena.",
+    "Introduce el ID de sala de 4 dígitos.", "ID de sala copiado.", "No se pudo copiar el ID. Selecciónalo y cópialo manualmente.", "La sala está llena.",
     "La sala ha caducado.", "Las versiones del juego son distintas. Recarga la página.", "No se pudo conectar. Revisa la conexión.", "No se pudo acceder a esta plaza.",
     "Espera un momento e inténtalo de nuevo.", "Por ahora no se pueden crear salas.", "Se perdió la conexión.", "Tu rival salió.", "Inténtalo de nuevo.", "Revisa los datos introducidos.",
     "Golpe al corazón", "Ambos corazones golpeados a la vez", "Se agotó el tiempo", "Partida decidida por rendición", "Conexión interrumpida", "Esperando la actualización de la clasificación."
   ],
   "pt-BR": [
-    "Digite o ID de sala de 12 caracteres.", "ID da sala copiado.", "Não foi possível copiar o ID. Selecione e copie manualmente.", "A sala está lotada.",
+    "Digite o ID de sala de 4 dígitos.", "ID da sala copiado.", "Não foi possível copiar o ID. Selecione e copie manualmente.", "A sala está lotada.",
     "O prazo da sala expirou.", "As versões do jogo são diferentes. Recarregue a página.", "Não foi possível conectar. Verifique sua conexão.", "Não foi possível acessar esta vaga.",
     "Aguarde um pouco e tente novamente.", "A criação de salas está indisponível no momento.", "Conexão perdida.", "Seu adversário saiu.", "Tente novamente.", "Confira o que foi digitado.",
     "Golpe no coração", "Os dois corações foram atingidos ao mesmo tempo", "Tempo esgotado", "Partida decidida por desistência", "Conexão interrompida", "Aguardando a atualização do ranking."
   ],
   "zh-Hans": [
-    "请输入 12 个字符的房间 ID。", "已复制房间 ID。", "无法自动复制，请选中 ID 后手动复制。", "房间已满。",
+    "请输入 4 位数字的房间 ID。", "已复制房间 ID。", "无法自动复制，请选中 ID 后手动复制。", "房间已满。",
     "房间已过期。", "游戏版本不同，请重新加载此页面。", "无法连接，请检查网络。", "无法连接到此席位。",
     "请稍等后再试。", "暂时无法创建新房间。", "连接已断开。", "对手已退出。", "请重试。", "请检查输入内容。",
     "心脏被击中", "双方心脏同时被击中", "时间到", "对战因认输结束", "连接中断", "正在等待排行榜更新。"
   ],
   fr: [
-    "Saisis l’identifiant du salon à 12 caractères.", "Identifiant du salon copié.", "Copie impossible. Sélectionne et copie l’identifiant manuellement.", "Ce salon est complet.",
+    "Saisis le code du salon à 4 chiffres.", "Identifiant du salon copié.", "Copie impossible. Sélectionne et copie l’identifiant manuellement.", "Ce salon est complet.",
     "Ce salon a expiré.", "Les versions du jeu diffèrent. Recharge cette page.", "Connexion impossible. Vérifie ta connexion.", "Impossible d’accéder à cette place.",
     "Attends un instant et réessaie.", "La création de salons est momentanément indisponible.", "Connexion perdue.", "Ton adversaire a quitté la partie.", "Réessaie.", "Vérifie ta saisie.",
     "Coup au cœur", "Les deux cœurs ont été touchés en même temps", "Temps écoulé", "Partie terminée par un abandon", "Connexion interrompue", "En attente de la mise à jour du classement."
   ],
   de: [
-    "Gib die 12 Zeichen lange Raum-ID ein.", "Raum-ID kopiert.", "Kopieren fehlgeschlagen. Markiere und kopiere die ID von Hand.", "Dieser Raum ist voll.",
+    "Gib die vierstellige Raum-ID ein.", "Raum-ID kopiert.", "Kopieren fehlgeschlagen. Markiere und kopiere die ID von Hand.", "Dieser Raum ist voll.",
     "Dieser Raum ist abgelaufen.", "Die Spielversionen unterscheiden sich. Lade die Seite neu.", "Verbindung fehlgeschlagen. Prüfe deine Verbindung.", "Dieser Platz ist nicht zugänglich.",
     "Warte kurz und versuche es erneut.", "Neue Räume sind vorübergehend nicht verfügbar.", "Verbindung getrennt.", "Dein Gegner hat den Raum verlassen.", "Versuche es erneut.", "Prüfe deine Eingabe.",
     "Treffer ins Herz", "Beide Herzen wurden gleichzeitig getroffen", "Zeit abgelaufen", "Spiel durch Aufgabe beendet", "Verbindung unterbrochen", "Warte auf die Aktualisierung der Rangliste."
   ],
   ko: [
-    "12자리 방 ID를 입력하세요.", "방 ID를 복사했습니다.", "복사하지 못했습니다. ID를 선택해서 직접 복사하세요.", "방이 가득 찼습니다.",
+    "4자리 방 ID를 입력하세요.", "방 ID를 복사했습니다.", "복사하지 못했습니다. ID를 선택해서 직접 복사하세요.", "방이 가득 찼습니다.",
     "방 이용 시간이 끝났습니다.", "게임 버전이 다릅니다. 페이지를 새로고침하세요.", "연결하지 못했습니다. 네트워크를 확인하세요.", "이 자리에 연결할 수 없습니다.",
     "잠시 후 다시 시도하세요.", "지금은 새 방을 만들 수 없습니다.", "연결이 끊겼습니다.", "상대가 나갔습니다.", "다시 시도하세요.", "입력 내용을 확인하세요.",
     "심장 명중", "양쪽 심장에 동시 명중", "시간 초과", "항복으로 종료", "연결 중단", "순위표가 업데이트되기를 기다리는 중입니다."
   ],
   ru: [
-    "Введите 12 символов кода комнаты.", "Код комнаты скопирован.", "Не удалось скопировать код. Выделите и скопируйте его вручную.", "Комната заполнена.",
+    "Введите 4 цифры кода комнаты.", "Код комнаты скопирован.", "Не удалось скопировать код. Выделите и скопируйте его вручную.", "Комната заполнена.",
     "Срок действия комнаты истёк.", "Версии игры различаются. Обновите страницу.", "Не удалось подключиться. Проверьте соединение.", "Не удалось занять это место.",
     "Немного подождите и повторите попытку.", "Создание комнат временно недоступно.", "Связь потеряна.", "Соперник вышел.", "Повторите попытку.", "Проверьте введённые данные.",
     "Удар в сердце", "Оба сердца поражены одновременно", "Время вышло", "Матч завершён сдачей", "Связь прервана", "Ожидаем обновления таблицы лидеров."
   ],
   it: [
-    "Inserisci l’ID di 12 caratteri della stanza.", "ID della stanza copiato.", "Copia non riuscita. Seleziona e copia l’ID manualmente.", "La stanza è piena.",
+    "Inserisci l’ID di 4 cifre della stanza.", "ID della stanza copiato.", "Copia non riuscita. Seleziona e copia l’ID manualmente.", "La stanza è piena.",
     "Questa stanza è scaduta.", "Le versioni del gioco sono diverse. Ricarica la pagina.", "Impossibile connettersi. Controlla la connessione.", "Impossibile accedere a questo posto.",
     "Attendi un istante e riprova.", "La creazione di nuove stanze è temporaneamente sospesa.", "Connessione persa.", "L’avversario è uscito.", "Riprova.", "Controlla ciò che hai inserito.",
     "Colpo al cuore", "Entrambi i cuori colpiti nello stesso momento", "Tempo scaduto", "Partita conclusa per resa", "Connessione interrotta", "In attesa dell’aggiornamento della classifica."
   ],
   "zh-Hant": [
-    "請輸入 12 個字元的房間 ID。", "已複製房間 ID。", "無法自動複製，請選取 ID 後手動複製。", "房間已滿。",
+    "請輸入 4 位數的房間 ID。", "已複製房間 ID。", "無法自動複製，請選取 ID 後手動複製。", "房間已滿。",
     "房間已過期。", "遊戲版本不同，請重新載入此頁面。", "無法連線，請檢查網路。", "無法連線至此席位。",
     "請稍等後再試。", "暫時無法建立新房間。", "連線已中斷。", "對手已離開。", "請再試一次。", "請檢查輸入內容。",
     "心臟被擊中", "雙方心臟同時被擊中", "時間到", "對戰因認輸結束", "連線中斷", "正在等候排行榜更新。"
   ],
   id: [
-    "Masukkan ID ruang 12 karakter.", "ID ruang disalin.", "ID gagal disalin. Pilih dan salin ID secara manual.", "Ruang ini penuh.",
+    "Masukkan ID ruang 4 digit.", "ID ruang disalin.", "ID gagal disalin. Pilih dan salin ID secara manual.", "Ruang ini penuh.",
     "Ruang ini kedaluwarsa.", "Versi permainan berbeda. Muat ulang halaman.", "Tidak dapat terhubung. Periksa sambungan.", "Tempat ini tidak dapat diakses.",
     "Tunggu sebentar lalu coba lagi.", "Pembuatan ruang baru sedang tidak tersedia.", "Sambungan terputus.", "Lawan keluar.", "Silakan coba lagi.", "Periksa isianmu.",
     "Jantung terkena pukulan", "Kedua jantung terkena bersamaan", "Waktu habis", "Pertandingan berakhir karena menyerah", "Sambungan terputus", "Menunggu pembaruan papan peringkat."
   ],
   tr: [
-    "12 karakterlik oda kodunu gir.", "Oda kodu kopyalandı.", "Kod kopyalanamadı. Kodu seçip elle kopyala.", "Bu oda dolu.",
+    "4 haneli oda kodunu gir.", "Oda kodu kopyalandı.", "Kod kopyalanamadı. Kodu seçip elle kopyala.", "Bu oda dolu.",
     "Bu odanın süresi doldu.", "Oyun sürümleri farklı. Sayfayı yeniden yükle.", "Bağlanılamadı. Bağlantını kontrol et.", "Bu koltuğa erişilemedi.",
     "Biraz bekleyip yeniden dene.", "Geçici olarak yeni oda oluşturulamıyor.", "Bağlantı kesildi.", "Rakibin ayrıldı.", "Tekrar dene.", "Girdiğin bilgileri kontrol et.",
     "Kalbe isabet", "İki kalp aynı anda vuruldu", "Süre doldu", "Maç pes etme nedeniyle bitti", "Bağlantı kesildi", "Sıralamanın güncellenmesi bekleniyor."
   ],
   vi: [
-    "Nhập mã phòng gồm 12 ký tự.", "Đã sao chép mã phòng.", "Không sao chép được. Hãy chọn mã và sao chép thủ công.", "Phòng này đã đầy.",
+    "Nhập mã phòng gồm 4 chữ số.", "Đã sao chép mã phòng.", "Không sao chép được. Hãy chọn mã và sao chép thủ công.", "Phòng này đã đầy.",
     "Phòng đã hết hạn.", "Phiên bản trò chơi khác nhau. Hãy tải lại trang.", "Không thể kết nối. Hãy kiểm tra đường truyền.", "Không thể vào vị trí này.",
     "Hãy chờ một lúc rồi thử lại.", "Tạm thời chưa thể tạo phòng mới.", "Đã mất kết nối.", "Đối thủ đã rời đi.", "Hãy thử lại.", "Hãy kiểm tra nội dung đã nhập.",
     "Đánh trúng tim", "Hai trái tim bị đánh trúng cùng lúc", "Hết giờ", "Trận đấu kết thúc do đầu hàng", "Kết nối bị gián đoạn", "Đang chờ bảng xếp hạng cập nhật."
   ],
   th: [
-    "ป้อนรหัสห้อง 12 ตัวอักษร", "คัดลอกรหัสห้องแล้ว", "คัดลอกไม่ได้ โปรดเลือกรหัสแล้วคัดลอกด้วยตนเอง", "ห้องนี้เต็มแล้ว",
+    "ป้อนรหัสห้อง 4 หลัก", "คัดลอกรหัสห้องแล้ว", "คัดลอกไม่ได้ โปรดเลือกรหัสแล้วคัดลอกด้วยตนเอง", "ห้องนี้เต็มแล้ว",
     "ห้องนี้หมดอายุแล้ว", "เกมคนละเวอร์ชัน โปรดโหลดหน้าใหม่", "เชื่อมต่อไม่ได้ โปรดตรวจสอบการเชื่อมต่อ", "เข้าที่นั่งนี้ไม่ได้",
     "โปรดรอสักครู่แล้วลองใหม่", "ยังสร้างห้องใหม่ไม่ได้ในขณะนี้", "การเชื่อมต่อหลุด", "คู่ต่อสู้ออกจากห้องแล้ว", "โปรดลองใหม่", "โปรดตรวจสอบข้อมูลที่ป้อน",
     "โจมตีโดนหัวใจ", "หัวใจทั้งสองถูกโจมตีพร้อมกัน", "หมดเวลา", "จบเกมด้วยการยอมแพ้", "การเชื่อมต่อขาดหาย", "กำลังรออัปเดตอันดับ"
@@ -211,21 +211,21 @@ const statusText = {
 };
 
 const shareText = {
-  ja: ["{p0}で対戦しよう！\nルームID {p1}\n{p2}", "{p0}\n{p1}・スコア {p2}\n{p3}"],
-  en: ["Play {p0} with me!\nRoom ID {p1}\n{p2}", "{p0}\n{p1} · Score {p2}\n{p3}"],
-  es: ["¡Juega a {p0} conmigo!\nID de sala {p1}\n{p2}", "{p0}\n{p1} · Puntuación {p2}\n{p3}"],
-  "pt-BR": ["Vamos jogar {p0}?\nID da sala {p1}\n{p2}", "{p0}\n{p1} · Pontuação {p2}\n{p3}"],
-  "zh-Hans": ["来一起玩{p0}吧！\n房间 ID {p1}\n{p2}", "{p0}\n{p1} · 得分 {p2}\n{p3}"],
-  fr: ["Joue à {p0} avec moi !\nIdentifiant du salon {p1}\n{p2}", "{p0}\n{p1} · Score {p2}\n{p3}"],
-  de: ["Spiel {p0} mit mir!\nRaum-ID {p1}\n{p2}", "{p0}\n{p1} · Punktzahl {p2}\n{p3}"],
-  ko: ["{p0}에서 함께 대전하자!\n방 ID {p1}\n{p2}", "{p0}\n{p1} · 점수 {p2}\n{p3}"],
-  ru: ["Сыграй со мной в {p0}!\nКод комнаты {p1}\n{p2}", "{p0}\n{p1} · Очки {p2}\n{p3}"],
-  it: ["Gioca a {p0} con me!\nID stanza {p1}\n{p2}", "{p0}\n{p1} · Punteggio {p2}\n{p3}"],
-  "zh-Hant": ["來一起玩{p0}吧！\n房間 ID {p1}\n{p2}", "{p0}\n{p1} · 得分 {p2}\n{p3}"],
-  id: ["Ayo main {p0} denganku!\nID ruang {p1}\n{p2}", "{p0}\n{p1} · Skor {p2}\n{p3}"],
-  tr: ["Benimle {p0} oyna!\nOda kodu {p1}\n{p2}", "{p0}\n{p1} · Skor {p2}\n{p3}"],
-  vi: ["Chơi {p0} cùng mình nhé!\nMã phòng {p1}\n{p2}", "{p0}\n{p1} · Điểm {p2}\n{p3}"],
-  th: ["มาเล่น {p0} ด้วยกัน!\nรหัสห้อง {p1}\n{p2}", "{p0}\n{p1} · คะแนน {p2}\n{p3}"]
+  ja: ["{p0}\n{p1}・スコア {p2}\n{p3}"],
+  en: ["{p0}\n{p1} · Score {p2}\n{p3}"],
+  es: ["{p0}\n{p1} · Puntuación {p2}\n{p3}"],
+  "pt-BR": ["{p0}\n{p1} · Pontuação {p2}\n{p3}"],
+  "zh-Hans": ["{p0}\n{p1} · 得分 {p2}\n{p3}"],
+  fr: ["{p0}\n{p1} · Score {p2}\n{p3}"],
+  de: ["{p0}\n{p1} · Punktzahl {p2}\n{p3}"],
+  ko: ["{p0}\n{p1} · 점수 {p2}\n{p3}"],
+  ru: ["{p0}\n{p1} · Очки {p2}\n{p3}"],
+  it: ["{p0}\n{p1} · Punteggio {p2}\n{p3}"],
+  "zh-Hant": ["{p0}\n{p1} · 得分 {p2}\n{p3}"],
+  id: ["{p0}\n{p1} · Skor {p2}\n{p3}"],
+  tr: ["{p0}\n{p1} · Skor {p2}\n{p3}"],
+  vi: ["{p0}\n{p1} · Điểm {p2}\n{p3}"],
+  th: ["{p0}\n{p1} · คะแนน {p2}\n{p3}"]
 };
 
 const detailKeys = ["winBonus", "headBreak", "brokenPartHits", "hitsOnOwnBrokenParts"];
@@ -247,9 +247,28 @@ const detailText = {
   th: ["คะแนนโบนัสจากการชนะ", "ทำลายหัวคู่ต่อสู้", "โจมตีส่วนที่พังแล้วของคู่ต่อสู้", "ถูกโจมตีตรงส่วนที่พังแล้ว"]
 };
 
+const roomKeys = ["swapSeats", "kickGuest", "leaveRoom", "clearRoomCode", "kicked"];
+const roomText = {
+  ja: ["1Pと2Pを入れ替える", "参加者を退出させる", "ルームから退出", "ルームIDを消す", "ルームオーナーの操作で退出しました。"],
+  en: ["Swap P1 and P2", "Remove guest", "Leave room", "Clear room ID", "The room owner removed you."],
+  es: ["Intercambiar J1 y J2", "Expulsar al invitado", "Salir de la sala", "Borrar ID de sala", "El anfitrión te expulsó de la sala."],
+  "pt-BR": ["Trocar J1 e J2", "Remover convidado", "Sair da sala", "Apagar ID da sala", "O anfitrião removeu você da sala."],
+  "zh-Hans": ["交换 1P 和 2P", "移出访客", "退出房间", "清除房间 ID", "房主已将你移出房间。"],
+  fr: ["Échanger J1 et J2", "Exclure l’invité", "Quitter le salon", "Effacer le code du salon", "L’hôte t’a retiré du salon."],
+  de: ["P1 und P2 tauschen", "Gast entfernen", "Raum verlassen", "Raum-ID löschen", "Der Gastgeber hat dich entfernt."],
+  ko: ["1P와 2P 바꾸기", "참가자 내보내기", "방 나가기", "방 ID 지우기", "방장이 내보냈습니다."],
+  ru: ["Поменять игроков местами", "Удалить гостя", "Выйти из комнаты", "Очистить код комнаты", "Владелец удалил вас из комнаты."],
+  it: ["Scambia P1 e P2", "Rimuovi l’ospite", "Esci dalla stanza", "Cancella ID stanza", "L’host ti ha rimosso dalla stanza."],
+  "zh-Hant": ["交換 1P 和 2P", "移出訪客", "退出房間", "清除房間 ID", "房主已將你移出房間。"],
+  id: ["Tukar P1 dan P2", "Keluarkan tamu", "Keluar dari ruang", "Hapus ID ruang", "Pemilik ruang mengeluarkanmu."],
+  tr: ["1. ve 2. oyuncuyu değiştir", "Misafiri çıkar", "Odadan ayrıl", "Oda kodunu sil", "Oda sahibi seni çıkardı."],
+  vi: ["Đổi chỗ P1 và P2", "Mời khách rời phòng", "Rời phòng", "Xóa mã phòng", "Chủ phòng đã đưa bạn ra khỏi phòng."],
+  th: ["สลับ P1 กับ P2", "นำผู้เข้าร่วมออก", "ออกจากห้อง", "ล้างรหัสห้อง", "เจ้าของห้องนำคุณออกจากห้องแล้ว"]
+};
+
 export const onlineMessages = Object.fromEntries(Object.keys(interfaceText).map(language => {
-  const keys = [...interfaceKeys, ...statusKeys, ...shareKeys, ...detailKeys];
-  const values = [...interfaceText[language], ...statusText[language], ...shareText[language], ...detailText[language]];
+  const keys = [...interfaceKeys, ...statusKeys, ...shareKeys, ...detailKeys, ...roomKeys];
+  const values = [...interfaceText[language], ...statusText[language], ...shareText[language], ...detailText[language], ...roomText[language]];
   if (keys.length !== values.length) throw new Error(`Incomplete translation: ${language}`);
   return [language, Object.fromEntries(keys.map((key, index) => [key, values[index]]))];
 }));

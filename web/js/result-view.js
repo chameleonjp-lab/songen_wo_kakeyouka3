@@ -1,4 +1,4 @@
-import { $, renderPlayers } from "./view.js";
+import { $ } from "./view.js";
 import { language, t } from "./i18n.js";
 
 const outcomes = { win: "m036", loss: "m112", draw: "m113", interrupted: "interrupted" };
@@ -19,7 +19,6 @@ export function showAnnouncement(result, seat, board) {
   $("#announcement-outcome").textContent = outcomeText(result, seat);
   $("#announcement-reason").textContent = reasonText(result);
   $("#announcement-reason").hidden = result.reason === "interrupted";
-  renderPlayers($("#final-players"), result.players, seat, "final");
   board.render(result.finalSnapshot);
 }
 
@@ -39,12 +38,12 @@ function breakdownRows(result, seat) {
   ];
 }
 
-export function showScore(result, seat, isHost, rankingsPublic) {
+export function showScore(result, seat, canReturn, rankingsPublic) {
   $("#score-outcome").textContent = outcomeText(result, seat);
   $("#score-reason").textContent = reasonText(result);
   $("#score-reason").hidden = result.reason === "interrupted";
   $("#score-value").textContent = formatScore(result.scoreBySeat[seat]);
-  $("#return-to-room").hidden = !isHost;
+  $("#return-to-room").hidden = !canReturn;
   const breakdown = $("#score-breakdown");
   breakdown.replaceChildren();
   const haveScore = Number.isFinite(result.scoreBySeat[seat]) && Boolean(result.statsBySeat?.[seat]);

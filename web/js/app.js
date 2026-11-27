@@ -1,19 +1,21 @@
 import "./audio.js";
-import { normalizeCode, emptyInput } from "../../game/protocol.js";
+import { normalizeCode, isShortCode, emptyInput } from "../../game/protocol.js";
 import { applyLanguage, language, languages, setLanguage, t } from "./i18n.js";
-import { createMatchClient, leaveRoom, loadSession, readStorage, registerRoom, saveSession, writeStorage } from "./match-client.js";
-import { $, FACES, createBoard, renderHud, renderPlayers, timeLeft } from "./view.js";
+import { clearReservation, createMatchClient, leaveRoom, loadSession, readStorage, registerRoom, saveSession, writeStorage } from "./match-client.js";
+import { $, FACES, createBoard, createPhoto, renderHud, renderPlayers, timeLeft } from "./view.js";
 import { formatScore, outcomeText, showAnnouncement, showScore } from "./result-view.js";
 
 const publicUrl = "https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/";
 const rankingUrl = "https://chameleonjp-lab.github.io/chameleonjp_lab/ranking.html?game=songen_wo_kakeyouka3_online";
 const rankingsPublic = import.meta.env.VITE_RANKINGS_PUBLIC === "true";
+const joinCodeKey = "songen3_last_join_code";
+const photoDelayMs = 2500;
 const browserNameKey = "songen_player_name";
 const faceKey = "songen3_selected_face";
 const audio = window.SongenAudio;
 const screens = [...document.querySelectorAll("[data-screen]")];
 const gameBoard = createBoard($("#game-board"));
-const finalBoard = createBoard($("#final-board"), { final: true });
+const finalBoard = createPhoto($("#final-board"));
 const controlButtons = [...document.querySelectorAll("[data-control]")];
 const keyControls = {
   ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right",
@@ -35,6 +37,9 @@ let busy = false;
 let readyPending = false;
 let forfeitPending = false;
 let returnPending = false;
+let managePending = false;
+let leaving = false;
+let photoTimer;
 let registerStatus = "";
 let copyStatus = "";
 let ownLobbyStatus = "";
@@ -44,8 +49,8 @@ let registrationAttempt = 0;
 let leaveRetryTimer = 0;
 
 for (const link of document.querySelectorAll(".ranking")) {
-  link.hidden = !rankingsPublic;
-  if (rankingsPublic) link.href = rankingUrl;
+  link.hidden = link.id !== "home-ranking" && !rankingsPublic;
+  link.href = rankingUrl;
 }
 $("#name-disclosure").hidden = !rankingsPublic;
 if (!rankingsPublic) $("#player-name").removeAttribute("aria-describedby");
@@ -74,6 +79,9 @@ const client = createMatchClient({
   }
 });
 
+const ownsRoom = () => session?.owner ?? session?.seat === 0;
+const canReturnToLobby = () => isShortCode(session?.code) || ownsRoom();
+
 function showScreen(name) {
   if (shown === "game" && name !== "game") {
     clearControls();
@@ -81,6 +89,11 @@ function showScreen(name) {
   }
   const changed = shown !== name;
   shown = name;
+  clearTimeout(photoTimer);
+  if (name === "announcement") {
+    session.photoReadyAt ??= Date.now() + photoDelayMs;
+    photoTimer = setTimeout(() => { $("#show-score").disabled = false; }, Math.max(0, session.photoReadyAt - Date.now()));
+  }
   for (const screen of screens) screen.hidden = screen.dataset.screen !== name;
   if (session) {
     session.screen = name;
@@ -107,7 +120,9 @@ function refreshShareLinks() {
   if (session?.code) {
     const invite = new URL(publicUrl);
     invite.hash = new URLSearchParams({ room: session.code }).toString();
-    $("#invite-share").href = shareLink(t("inviteText", { p0: t("title"), p1: session.code, p2: invite.href }));
+    $("#invite-share").href = shareLink([
+      "私と尊厳を賭けようよ！", `ルームID：${session.code}`, "#尊厳を賭けようか3", invite.href
+    ].join("\n"));
   }
   if (result && session) {
     const score = formatScore(result.scoreBySeat[session.seat]);
@@ -128,16 +143,17 @@ function refreshFaces() {
   for (const [faceId, button] of [...$("#face-grid").children].entries()) {
     button.setAttribute("aria-label", t("selectFace", { p0: faceId + 1 }));
     button.setAttribute("aria-pressed", String(faceId === selectedFace));
-    button.disabled = busy || (session?.screen === "register" && session.seat === 0);
+    button.disabled = busy || (session?.screen === "register" && ownsRoom());
   }
 }
 
 function refreshRegister() {
-  const created = session?.screen === "register" && session.seat === 0;
+  const created = session?.screen === "register" && ownsRoom();
   $("#created-room").hidden = !created;
   $("#create-room").disabled = busy || created;
   $("#player-name").disabled = busy || created;
   $("#join-button").disabled = busy;
+  refreshJoinField();
   if (created) {
     $("#invite-code").value = session.code;
     refreshShareLinks();
@@ -167,6 +183,15 @@ function refreshLobby() {
   else if (room?.phase !== "countdown") message = room?.players[1 - seat] ? "waitingReady" : "waiting";
   setStatus($("#lobby-status"), message, Boolean(ownLobbyStatus));
   $("#ready").disabled = !client.connected || Boolean(readyPending || room?.players[seat]?.ready) || room?.phase !== "waiting";
+  const manages = ownsRoom() && isShortCode(session?.code);
+  const waiting = room?.phase === "waiting";
+  $("#owner-actions").hidden = !manages;
+  const canManage = waiting && !managePending && client.connected && Boolean(room?.players[1 - seat]);
+  $("#swap-seats").disabled = !canManage;
+  $("#kick-guest").disabled = !canManage;
+  $("#lobby-home").hidden = !ownsRoom();
+  $("#leave-lobby").hidden = ownsRoom();
+  $("#leave-lobby").disabled = leaving || !client.connected || !["waiting", "countdown"].includes(room?.phase);
   updateLobbyClock();
 }
 
@@ -200,9 +225,12 @@ function refreshDynamic() {
   if (shown === "register") refreshRegister();
   else if (shown === "lobby") refreshLobby();
   else if (shown === "game") refreshGame();
-  else if (result && session && shown === "announcement") showAnnouncement(result, session.seat, finalBoard);
+  else if (result && session && shown === "announcement") {
+    showAnnouncement(result, session.seat, finalBoard);
+    $("#show-score").disabled = Date.now() < session.photoReadyAt;
+  }
   else if (result && session && shown === "score") {
-    showScore(result, session.seat, session.seat === 0, rankingsPublic);
+    showScore(result, session.seat, canReturnToLobby(), rankingsPublic);
     setStatus($("#score-status"), scoreStatus, Boolean(scoreStatus && scoreStatus !== "connecting"));
     $("#return-to-room").disabled = returnPending;
     refreshShareLinks();
@@ -226,12 +254,21 @@ function activateRoom() {
   client.open(session);
 }
 
-function goHome() {
+function refreshJoinField() {
+  $("#clear-join-code").hidden = !$("#join-code").value;
+  $("#clear-join-code").disabled = busy;
+}
+
+function saveJoinCode(value) {
+  writeStorage(joinCodeKey, isShortCode(value) ? value : null);
+}
+
+function goHome({ target = "home", leave = true } = {}) {
   if (shown === "game" && connectStatus !== "failed") return;
   registrationAttempt++;
   busy = false;
-  const leavingRoom = shown === "lobby" || shown === "register";
-  if (!client.close({ leave: leavingRoom }) && leavingRoom) leaveRoom(session);
+  const leavingRoom = leave && (shown === "lobby" || shown === "register");
+  if (!client.close({ leave: leavingRoom }) && leavingRoom) leaveRoom(session).catch(() => {});
   session = null;
   room = null;
   lastSnapshot = null;
@@ -241,8 +278,9 @@ function goHome() {
   readyPending = false;
   returnPending = false;
   saveSession(null);
-  $("#join-code").value = "";
-  showScreen("home");
+  managePending = false;
+  leaving = false;
+  showScreen(target);
 }
 
 async function register(kind) {
@@ -259,6 +297,7 @@ async function register(kind) {
     return;
   }
   const name = $("#player-name").value.trim();
+  if (kind === "join") saveJoinCode(code);
   const attempt = ++registrationAttempt;
   writeStorage(browserNameKey, name);
   busy = true;
@@ -268,7 +307,7 @@ async function register(kind) {
     const reservation = await registerRoom(kind, { code, name, faceId: selectedFace });
     if (attempt !== registrationAttempt) return;
     registerStatus = "";
-    if (session?.code && session.code !== reservation.code) leaveRoom(session);
+    if (session?.code && session.code !== reservation.code) leaveRoom(session).catch(() => {});
     session = reservation;
     saveSession(session);
     if (kind === "join") activateRoom();
@@ -286,14 +325,17 @@ async function register(kind) {
 
 function onRoom(packet, previous) {
   room = packet;
+  managePending = false;
+  if (previous?.layout !== packet.layout) readyPending = false;
   gameError = "";
   roomClockOffset = (packet.serverNow ?? Date.now()) - Date.now();
   if (ownLobbyStatus !== "opponentLeft" || packet.players[1 - session.seat]) ownLobbyStatus = "";
   if (readyPending && packet.players[session.seat]?.ready) readyPending = false;
   if (["waiting", "countdown"].includes(packet.phase)) {
-    if (previous?.players[1 - session.seat] && !packet.players[1 - session.seat] && !returnPending) ownLobbyStatus = "opponentLeft";
+    if (previous?.players[1 - previous.seat] && !packet.players[1 - session.seat] && !returnPending) ownLobbyStatus = "opponentLeft";
     result = null;
     delete session.result;
+    delete session.photoReadyAt;
     lastSnapshot = null;
     delete session.lastSnapshot;
     gameBoard.render(null);
@@ -328,6 +370,7 @@ function onSnapshot(packet, events) {
 function onFinish(final, duplicate, events) {
   clearTimeout(leaveRetryTimer);
   const alreadyShown = Boolean(result) && result.matchId === final.matchId;
+  if (!alreadyShown) delete session.photoReadyAt;
   result = final;
   session.result = final;
   saveSession(session);
@@ -341,6 +384,12 @@ function onFinish(final, duplicate, events) {
 }
 
 function showError(code) {
+  if (code === "kicked" && session && shown !== "game") {
+    registerStatus = "kicked";
+    goHome({ target: "register", leave: false });
+    return;
+  }
+  managePending = false;
   const key = code === "opponent_left" ? "opponentLeft" : code;
   if (shown === "register") registerStatus = key;
   if (shown === "lobby") ownLobbyStatus = key;
@@ -468,7 +517,7 @@ $("#prepare").addEventListener("click", () => {
   registerStatus = "";
   showScreen("register");
 });
-for (const button of document.querySelectorAll("[data-home]")) button.addEventListener("click", goHome);
+for (const button of document.querySelectorAll("[data-home]")) button.addEventListener("click", () => goHome());
 $("#profile-form").addEventListener("submit", event => {
   event.preventDefault();
   $("#face-grid button[aria-pressed='true']")?.focus();
@@ -477,6 +526,21 @@ $("#create-room").addEventListener("click", () => register("create"));
 $("#join-room").addEventListener("submit", event => {
   event.preventDefault();
   register("join");
+});
+$("#join-code").addEventListener("input", event => {
+  const field = event.currentTarget;
+  field.value = field.value.replace(/[０-９]/g, digit => String(digit.charCodeAt(0) - 0xff10))
+    .replace(/[^0-9]/g, "").slice(0, 4);
+  saveJoinCode(field.value);
+  refreshJoinField();
+});
+$("#clear-join-code").addEventListener("click", () => {
+  $("#join-code").value = "";
+  saveJoinCode(null);
+  clearReservation();
+  registerStatus = "";
+  refreshRegister();
+  $("#join-code").focus();
 });
 $("#enter-lobby").addEventListener("click", activateRoom);
 $("#copy-room").addEventListener("click", async () => {
@@ -501,6 +565,32 @@ $("#ready").addEventListener("click", () => {
   refreshLobby();
 });
 
+for (const [selector, type] of [["#swap-seats", "swapSeats"], ["#kick-guest", "kickGuest"]]) {
+  $(selector).addEventListener("click", () => {
+    managePending = client.manage(type);
+    refreshLobby();
+  });
+}
+
+$("#leave-lobby").addEventListener("click", async () => {
+  if (!session || ownsRoom() || leaving) return;
+  const reservation = session;
+  leaving = true;
+  refreshLobby();
+  try {
+    await leaveRoom(reservation);
+    if (session !== reservation || shown !== "lobby") return;
+    registerStatus = "";
+    goHome({ target: "register", leave: false });
+  } catch {
+    if (session === reservation) {
+      leaving = false;
+      ownLobbyStatus = "network";
+      refreshLobby();
+    }
+  }
+});
+
 $("#forfeit").addEventListener("click", () => {
   clearControls();
   $("#forfeit-dialog").showModal();
@@ -519,11 +609,12 @@ $("#confirm-forfeit").addEventListener("click", () => {
   refreshGame();
 });
 $("#show-score").addEventListener("click", () => {
+  if ($("#show-score").disabled || shown !== "announcement") return;
   scoreStatus = "";
   showScreen("score");
 });
 $("#return-to-room").addEventListener("click", () => {
-  if (session?.seat !== 0 || !result) return;
+  if (!canReturnToLobby() || !result) return;
   if (Number.isFinite(result.expiresAt) && result.expiresAt <= Date.now() + roomClockOffset) {
     scoreStatus = "expired";
   } else {
@@ -540,12 +631,14 @@ function invitedCode() {
 
 function consumeInvite(code) {
   $("#join-code").value = code;
+  saveJoinCode(code);
+  refreshJoinField();
   history.replaceState(null, "", location.pathname + location.search);
 }
 
 function keepsSeat(reservation, invite) {
   if (!invite || (reservation.screen === "game" && !reservation.result)) return true;
-  return reservation.code === invite && (reservation.seat === 0 || !reservation.result);
+  return reservation.code === invite && ((reservation.owner ?? reservation.seat === 0) || !reservation.result);
 }
 
 window.addEventListener("hashchange", () => {
@@ -561,6 +654,7 @@ window.addEventListener("hashchange", () => {
 });
 
 function start() {
+  $("#join-code").value = normalizeCode(readStorage(joinCodeKey)) ?? "";
   applyLanguage();
   refreshLanguage();
   const invite = invitedCode();
@@ -576,7 +670,7 @@ function start() {
     else showScreen(saved.screen === "game" ? "game" : "lobby");
     if (saved.screen !== "register") client.open(saved);
   } else if (invite) {
-    if (saved && ["register", "lobby"].includes(saved.screen)) leaveRoom(saved);
+    if (saved && ["register", "lobby"].includes(saved.screen)) leaveRoom(saved).catch(() => {});
     saveSession(null);
     showScreen("register");
   }
