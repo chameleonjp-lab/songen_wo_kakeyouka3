@@ -21,7 +21,8 @@ jobs:
       contents: read
       pages: read
     env:
-      VITE_MATCH_SERVER_URL: ${{ vars.VITE_MATCH_SERVER_URL }}
+      VITE_MATCH_SERVER_URL: ${{ vars.VITE_MATCH_SERVER_URL || 'https://songen3-online.chameleonjp-lab.workers.dev' }}
+      VITE_RANKINGS_PUBLIC: ${{ vars.VITE_RANKINGS_PUBLIC || 'false' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -63,46 +64,14 @@ jobs:
       - name: Build static site for production
         run: pnpm build
 
-      - name: Verify production match server and rankings
+      - name: Verify the production match server before publishing
         run: |
           node --input-type=module <<'NODE'
-          import { VERSION } from './game/protocol.js';
+          import { verifyPagesReadiness } from './scripts/pages-readiness.js';
 
-          let url;
-          try {
-            url = new URL(process.env.VITE_MATCH_SERVER_URL);
-          } catch {
-            throw new Error('Set the repository Actions variable VITE_MATCH_SERVER_URL to the production Worker origin.');
-          }
-          if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
-            throw new Error('VITE_MATCH_SERVER_URL must be an HTTPS origin.');
-          }
-
-          const response = await fetch(new URL('/v1/health', url), {
-            redirect: 'error',
-            signal: AbortSignal.timeout(15_000),
-          });
-          if (!response.ok) throw new Error(`Health check returned HTTP ${response.status}.`);
-          const { version, acceptingRooms, rankingReady } = await response.json();
-          if (version !== VERSION) throw new Error(`The Worker must report protocol version ${VERSION}.`);
-          if (acceptingRooms !== true) throw new Error('The Worker is not accepting new rooms.');
-          if (rankingReady !== true) throw new Error('The ranking service is not ready.');
-
-          const publicOrigin = 'https://chameleonjp-lab.github.io';
-          const preflight = await fetch(new URL('/v1/rooms', url), {
-            method: 'OPTIONS',
-            headers: {
-              Origin: publicOrigin,
-              'Access-Control-Request-Method': 'POST',
-              'Access-Control-Request-Headers': 'Content-Type',
-            },
-            redirect: 'error',
-            signal: AbortSignal.timeout(15_000),
-          });
-          if (!preflight.ok || preflight.headers.get('access-control-allow-origin') !== publicOrigin) {
-            throw new Error('The Worker must allow room requests from the GitHub Pages origin.');
-          }
-          console.log(`The production Worker accepts rooms using protocol ${VERSION} and rankings are ready.`);
+          const publishRankings = process.env.VITE_RANKINGS_PUBLIC === 'true';
+          await verifyPagesReadiness(process.env.VITE_MATCH_SERVER_URL, publishRankings);
+          console.log(publishRankings ? 'Match server and rankings are ready.' : 'Match server is ready. Rankings are on hold.');
           NODE
 
       - name: Configure GitHub Pages

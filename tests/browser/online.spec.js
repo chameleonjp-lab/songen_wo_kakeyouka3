@@ -1,23 +1,35 @@
 import { expect, test } from "@playwright/test";
 
 const publicUrl = "https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/";
-const rankingUrl = "https://chameleonjp-lab.github.io/chameleonjp_lab/ranking.html?game=songen_wo_kakeyouka3_online";
 const view = (page, name) => page.locator(`[data-screen="${name}"]`);
 const part = (page, board, seat, name) => page.locator(`#${board} .fighter[data-seat="${seat}"] [data-part="${name}"]`);
 
-async function hostRoom(page) {
+async function hostRoom(page, capture) {
   await page.goto("./");
   await page.locator("#language").selectOption("ja");
   const home = view(page, "home");
   await expect(home.locator("#home-actions > *")).toHaveText(["ゲームの準備", /ルール説明/, "Xにシェア", "ランキング"]);
-  await expect(home.locator(".ranking")).toHaveAttribute("href", rankingUrl);
+  await expect(home.locator(".ranking")).toBeHidden();
+  await expect(home.locator("#home-title")).toHaveText("尊厳を 賭けようか3", { useInnerText: true });
+  const languageBox = await home.locator("#language").boundingBox();
+  const cardBox = await home.locator(".home-panel").boundingBox();
+  expect(languageBox.x - cardBox.x).toBeLessThan(25);
+  await expect(home.locator(".home-panel")).toHaveCSS("border-top-left-radius", "24px");
+  expect((await home.locator(".home-panel").boundingBox()).y).toBeLessThan(40);
+  await expect(home.locator("#prepare")).toHaveCSS("background-image", /linear-gradient/);
+  await expect(home.locator("#home-actions > :visible").last()).toBeInViewport();
   await page.locator("#rules summary").click();
   await expect(page.locator("#rules li").first()).toBeVisible();
   await page.locator("#rules summary").click();
+  await capture(page, "01-home-402x700");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await capture(page, "01-home-390x844");
+  await page.setViewportSize({ width: 402, height: 700 });
   await page.getByRole("button", { name: "ゲームの準備" }).click();
   await expect(view(page, "register")).toBeVisible();
   await page.locator("#player-name").fill("<ほすと>");
   await page.locator("[data-face-id='12']").click();
+  await capture(page, "02-registration");
   await page.getByRole("button", { name: "ルームを立てる" }).click();
   const input = page.locator("#invite-code");
   await expect(input).toHaveValue(/^[0-9A-Z]{12}$/);
@@ -31,9 +43,10 @@ async function hostRoom(page) {
   return code;
 }
 
-test("two independent players can play, reload, keep the final board, and rematch", async ({ page: host, browser, baseURL }) => {
+test("two independent players can play, reload, keep the final board, and rematch", async ({ page: host, browser, baseURL }, testInfo) => {
+  const capture = (page, name) => page.screenshot({ path: testInfo.outputPath("screen-" + name + ".png"), scale: "css" });
   await host.setViewportSize({ width: 402, height: 700 });
-  const code = await hostRoom(host);
+  const code = await hostRoom(host, capture);
   const guestContext = await browser.newContext({ baseURL, locale: "de-DE", viewport: { width: 402, height: 700 }, isMobile: true, hasTouch: true });
   try {
     const guest = await guestContext.newPage();
@@ -51,12 +64,34 @@ test("two independent players can play, reload, keep the final board, and rematc
     await guest.evaluate(value => { location.hash = `room=${value}`; }, code);
     await expect(guest.locator("#lobby-players [data-local=true] [data-you]")).toHaveText("Du");
 
+    await capture(host, "03-lobby");
     await host.locator("#ready").click();
     await expect(view(host, "lobby")).toBeVisible();
     await guest.locator("#ready").click();
     await expect(host.locator("#countdown")).toBeVisible();
     await expect(view(host, "game")).toBeVisible();
     await expect(view(guest, "game")).toBeVisible();
+    await expect(host.locator("#battle-time")).toBeVisible();
+    await expect(host.locator("#battle-score")).toBeVisible();
+    await expect(host.locator("#stamina-value")).toBeVisible();
+    const movement = {};
+    for (const key of ["jumpPressed", "left", "right", "crouch"]) {
+      movement[key] = await host.locator(`[data-control="${key}"]`).boundingBox();
+    }
+    expect(movement.left.x + movement.left.width).toBeLessThan(movement.jumpPressed.x);
+    expect(movement.right.x).toBeGreaterThan(movement.jumpPressed.x + movement.jumpPressed.width);
+    expect(movement.left.y).toBe(movement.right.y);
+    expect(movement.jumpPressed.y + movement.jumpPressed.height).toBeLessThan(movement.left.y);
+    expect(movement.crouch.y).toBeGreaterThan(movement.left.y + movement.left.height);
+    const attack = await host.locator('[data-control="attackPressed"]').boundingBox();
+    const guard = await host.locator('[data-control="guardPressed"]').boundingBox();
+    expect(guard.x + guard.width).toBeLessThan(attack.x);
+    expect(guard.y).toBeGreaterThan(attack.y);
+    expect(attack.width).toBe(attack.height);
+    await expect(host.locator('[data-control="attackPressed"]')).toHaveCSS("border-radius", "50%");
+    expect(await host.locator('#game-board .fighter[data-seat="0"] .part').evaluateAll(parts =>
+      parts.map(part => part.dataset.part ?? null)
+    )).toEqual([null, "head", "wing", "leftArm", "heart", "rightArm", null, "leftFoot", "rightFoot"]);
     const matchId = await host.locator("#game-board").getAttribute("data-match-id");
     expect(matchId).toMatch(/^[0-9a-f-]{36}$/);
     await expect(guest.locator("#game-board")).toHaveAttribute("data-match-id", matchId);
@@ -67,9 +102,11 @@ test("two independent players can play, reload, keep the final board, and rematc
       window.addEventListener("songen:input-drawn", event => window.inputDraws.push(event.detail));
       window.addEventListener("songen:input-confirmed", event => window.inputConfirms.push(event.detail));
     });
+    await capture(host, "04-game-402x700");
     const punch = host.locator('[data-control="attackPressed"]');
     await punch.tap();
     await expect(part(host, "game-board", 1, "leftArm")).toHaveAttribute("data-damage", "1");
+    await expect.poll(async () => Number(await host.locator("#battle-score").textContent())).toBeLessThanOrEqual(-30);
     await expect.poll(() => host.evaluate(() => window.inputDraws.length)).toBe(1);
     await expect.poll(() => host.evaluate(() => window.inputConfirms.length)).toBe(1);
     await host.waitForTimeout(650);
@@ -83,6 +120,7 @@ test("two independent players can play, reload, keep the final board, and rematc
     await expect(part(guest, "game-board", 1, "leftArm")).toHaveAttribute("data-broken", "true");
     await guest.setViewportSize({ width: 700, height: 402 });
     for (const control of await guest.locator("[data-control]").all()) await expect(control).toBeInViewport();
+    await capture(guest, "04-game-700x402");
     await guest.locator("#forfeit").click();
     await expect(guest.locator("#forfeit-dialog")).toBeVisible();
     await guest.locator("#confirm-forfeit").click();
@@ -105,17 +143,20 @@ test("two independent players can play, reload, keep the final board, and rematc
     await expect(guest.locator("#final-board")).toHaveAttribute("data-tick", tick);
     await expect(guest.locator("#show-score")).toBeInViewport();
 
+    await capture(host, "05-announcement");
     await host.locator("#show-score").click();
     await guest.locator("#show-score").click();
-    await expect(host.locator("#score-actions > :visible")).toHaveText(["ルームに戻る", "Xにシェア", "ホーム", "ランキング"]);
-    await expect(guest.locator("#score-actions > :visible")).toHaveCount(3);
+    await expect(host.locator("#score-actions > :visible")).toHaveText(["ルームに戻る", "Xにシェア", "ホーム"]);
+    await expect(guest.locator("#score-actions > :visible")).toHaveCount(2);
     await expect(guest.locator("#return-to-room")).toBeHidden();
     await expect(host.locator("#score-breakdown > div")).toHaveCount(9);
-    await expect(host.locator("#score-actions .ranking")).toHaveAttribute("href", rankingUrl);
+    await expect(host.locator("#score-actions .ranking")).toBeHidden();
+    await expect(host.locator("#ranking-status")).toBeHidden();
     const hostShare = new URL(await host.locator("#score-share").getAttribute("href")).searchParams.get("text");
     expect(hostShare).toContain(`勝利・スコア ${await host.locator("#score-value").textContent()}`);
     expect(hostShare).toContain(publicUrl);
 
+    await capture(host, "06-score");
     await host.locator("#return-to-room").click();
     await expect(view(host, "lobby")).toBeVisible();
     await expect(host.locator("#lobby-code")).toHaveText(code);
@@ -190,6 +231,8 @@ async function resumeGame(page) {
 test("a restarted server can confirm interruption at an older checkpoint", async ({ page }) => {
   const { createMatch, toSnapshot } = await import("../../game/rules.js");
   const state = createMatch({ matchId: sampleMatch, players: samplePlayers });
+  state.statsBySeat[0].score = 120;
+  state.players[0].stamina = 3;
   const snapshot = { ...toSnapshot(state), tick: 61 };
   const finalSnapshot = { ...snapshot, tick: 60 };
   let socket;
@@ -205,8 +248,12 @@ test("a restarted server can confirm interruption at an older checkpoint", async
   await page.goto("./");
   const board = page.locator("#game-board");
   await expect(board).toHaveAttribute("data-tick", "61");
+  await expect(page.locator("#battle-score")).toHaveText("120");
+  await expect(page.locator("#stamina-value")).toHaveText("3.0");
   socket.send(JSON.stringify({ type: "snapshot", matchId: sampleMatch, phase: "playing", snapshot: { ...snapshot, tick: 59 }, events: [], acks: [0, 0] }));
   await expect(board).toHaveAttribute("data-tick", "61");
+  await expect(page.locator("#battle-score")).toHaveText("120");
+  await expect(page.locator("#stamina-value")).toHaveText("3.0");
   socket.send(JSON.stringify({
     type: "finished", matchId: sampleMatch, finalSnapshot, players: samplePlayers,
     outcomeBySeat: ["interrupted", "interrupted"], scoreBySeat: [null, null], statsBySeat: [],

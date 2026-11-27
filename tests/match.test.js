@@ -7,8 +7,8 @@ const code = 'ABCDE0123FGH';
 const first = '00000000-0000-4000-8000-000000000001';
 const second = '00000000-0000-4000-8000-000000000002';
 
-function setup() {
-  const room = new RoomSession();
+function setup(rankingsPublic = true) {
+  const room = new RoomSession(undefined, { rankingsPublic });
   room.register('create', code, { hash: 'left', name: 'A', faceId: 1, playerId: 'a' }, 0);
   room.register('join', code, { hash: 'right', name: 'B', faceId: 2, playerId: 'b' }, 0);
   const left = room.connect('left', null, 0);
@@ -99,4 +99,16 @@ test('will not return a finished result after its retention period, even if clea
   const { expiresAt } = room.result(first);
   assert.equal(room.connect('right', first, expiresAt - 1).seat, 1);
   assert.equal(room.connect('right', first, expiresAt).error, 'expired');
+});
+
+test('keeps scores but never queues ranking data when the match started during the hold', () => {
+  const { room, right } = setup(false);
+  assert.deepEqual(room.drainEvents(), []);
+  const resumed = new RoomSession(structuredClone(room.data), { rankingsPublic: true });
+  assert.equal(resumed.forfeit(1, right.generation, first, 3001), true);
+  const result = resumed.result(first);
+  assert.equal(result.rankingStatus, 'disabled');
+  assert.equal(Number.isFinite(result.scoreBySeat[0]), true);
+  assert.equal(result.finalSnapshot.matchId, first);
+  assert.deepEqual(resumed.drainEvents(), []);
 });

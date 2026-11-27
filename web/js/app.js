@@ -2,11 +2,12 @@ import "./audio.js";
 import { normalizeCode, emptyInput } from "../../game/protocol.js";
 import { applyLanguage, language, languages, setLanguage, t } from "./i18n.js";
 import { createMatchClient, leaveRoom, loadSession, readStorage, registerRoom, saveSession, writeStorage } from "./match-client.js";
-import { $, FACES, createBoard, renderPlayers, timeLeft } from "./view.js";
+import { $, FACES, createBoard, renderHud, renderPlayers, timeLeft } from "./view.js";
 import { formatScore, outcomeText, showAnnouncement, showScore } from "./result-view.js";
 
 const publicUrl = "https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/";
 const rankingUrl = "https://chameleonjp-lab.github.io/chameleonjp_lab/ranking.html?game=songen_wo_kakeyouka3_online";
+const rankingsPublic = import.meta.env.VITE_RANKINGS_PUBLIC === "true";
 const browserNameKey = "songen_player_name";
 const faceKey = "songen3_selected_face";
 const audio = window.SongenAudio;
@@ -42,7 +43,12 @@ let gameError = "";
 let registrationAttempt = 0;
 let leaveRetryTimer = 0;
 
-for (const link of document.querySelectorAll(".ranking")) link.href = rankingUrl;
+for (const link of document.querySelectorAll(".ranking")) {
+  link.hidden = !rankingsPublic;
+  if (rankingsPublic) link.href = rankingUrl;
+}
+$("#name-disclosure").hidden = !rankingsPublic;
+if (!rankingsPublic) $("#player-name").removeAttribute("aria-describedby");
 for (const [locale, name] of Object.entries(languages)) {
   const option = new Option(name, locale);
   option.lang = locale;
@@ -182,7 +188,7 @@ function updateGameClock() {
 
 function refreshGame() {
   renderPlayers($("#game-players"), lastSnapshot?.players ?? room?.players, session?.seat, "game");
-  $("#battle-time").textContent = String(timeLeft(lastSnapshot));
+  renderHud(lastSnapshot, session?.seat);
   for (const button of controlButtons) button.disabled = !client.canPlay || forfeitPending;
   $("#forfeit").disabled = !client.connected || forfeitPending || !room?.matchId;
   $("#forfeit").hidden = connectStatus === "failed";
@@ -196,7 +202,7 @@ function refreshDynamic() {
   else if (shown === "game") refreshGame();
   else if (result && session && shown === "announcement") showAnnouncement(result, session.seat, finalBoard);
   else if (result && session && shown === "score") {
-    showScore(result, session.seat, session.seat === 0);
+    showScore(result, session.seat, session.seat === 0, rankingsPublic);
     setStatus($("#score-status"), scoreStatus, Boolean(scoreStatus && scoreStatus !== "connecting"));
     $("#return-to-room").disabled = returnPending;
     refreshShareLinks();

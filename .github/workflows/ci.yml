@@ -47,6 +47,13 @@ jobs:
       - name: Run two-player WebKit tests
         run: pnpm test:browser
 
+      - name: Upload mobile screen captures
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: songen3-mobile-screens
+          path: test-results/**/screen-*.png
+          if-no-files-found: error
+
       - name: Build static site
         run: pnpm build
 

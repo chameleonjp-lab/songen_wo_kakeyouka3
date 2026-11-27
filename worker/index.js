@@ -10,7 +10,7 @@ import {
 } from '../game/protocol.js';
 import { createMatchClock } from './clock.js';
 import { RoomSession } from './room.js';
-import { flushRankingEvents, queueRankingEvent, rankingReady, RANKING_PREFIX } from './ranking.js';
+import { flushRankingEvents, queueRankingEvent, rankingReady, rankingsPublic, RANKING_PREFIX } from './ranking.js';
 
 const encoder = new TextEncoder();
 const persistedKey = 'room';
@@ -87,7 +87,11 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/v1/health' && request.method === 'GET') {
       const acceptingRooms = canCreate(env);
-      return reply({ version: VERSION, acceptingRooms, rankingReady: await probeRanking(env) });
+      const published = rankingsPublic(env);
+      return reply({
+        version: VERSION, acceptingRooms, rankingsPublic: published,
+        rankingReady: published && await probeRanking(env),
+      });
     }
     const origin = checkOrigin(request, env);
     if (!origin) return reject('credentials');
@@ -188,8 +192,8 @@ export class MatchRoom {
     this.peakLag = 0;
     ctx.blockConcurrencyWhile(async () => {
       const stored = await ctx.storage.get(persistedKey);
-      this.session = new RoomSession(stored);
-      if (env.RANKING_API_KEY && (await ctx.storage.list({ prefix: RANKING_PREFIX, limit: 1 })).size) {
+      this.session = new RoomSession(stored, { rankingsPublic: rankingsPublic(env) });
+      if (rankingsPublic(env) && env.RANKING_API_KEY && (await ctx.storage.list({ prefix: RANKING_PREFIX, limit: 1 })).size) {
         this.retryAt = Date.now();
       }
       if (stored && ['playing', 'paused'].includes(this.session.phase)) {
@@ -488,7 +492,7 @@ export class MatchRoom {
       this.ctx.abort('Could not persist room state');
     }
     this.session.drainEvents();
-    if (events.length && this.env.RANKING_API_KEY) this.retryAt ??= Date.now();
+    if (events.length && rankingsPublic(this.env) && this.env.RANKING_API_KEY) this.retryAt ??= Date.now();
     await this.schedule();
   }
 
@@ -522,7 +526,7 @@ export class MatchRoom {
           this.drop(ws, 'expired');
         }
       }
-      const pending = this.env.RANKING_API_KEY &&
+      const pending = rankingsPublic(this.env) && this.env.RANKING_API_KEY &&
         (await this.ctx.storage.list({ prefix: RANKING_PREFIX, limit: 1 })).size > 0;
       const due = pending && (this.retryAt === null || this.retryAt <= now);
       this.retryAt = pending ? (due ? now + RETRY_MS : this.retryAt) : null;

@@ -46,7 +46,15 @@ export function t(key, values = {}) {
 
 export function applyLanguage() {
   document.documentElement.lang = language;
-  document.title = t("title");
+  const title = t("title");
+  document.title = title;
+  const heading = document.querySelector("#home-title");
+  if (language === "ja") {
+    const firstLine = "尊厳を";
+    heading.replaceChildren(firstLine, document.createElement("br"), title.slice(firstLine.length));
+  } else {
+    heading.textContent = title;
+  }
   for (const element of document.querySelectorAll("[data-i18n]")) element.textContent = t(element.dataset.i18n);
   for (const attribute of ["aria-label", "placeholder"]) {
     for (const element of document.querySelectorAll(`[data-i18n-${attribute}]`)) {

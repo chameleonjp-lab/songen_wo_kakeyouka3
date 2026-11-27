@@ -18,6 +18,7 @@ function initialData() {
     expiresAt: 0,
     startAt: null,
     startedAt: null,
+    rankMatch: false,
     matchId: null,
     members: [null, null],
     generations: [0, 0],
@@ -37,8 +38,9 @@ function newMember(profile) {
 }
 
 export class RoomSession {
-  constructor(data = initialData()) {
+  constructor(data = initialData(), { rankingsPublic = false } = {}) {
     this.data = data;
+    this.rankingsPublic = rankingsPublic;
     this.controls = [makeControl(), makeControl()];
     this.events = [];
   }
@@ -215,6 +217,7 @@ export class RoomSession {
     this.data.phase = 'playing';
     this.data.startAt = null;
     this.data.startedAt = now;
+    this.data.rankMatch = this.rankingsPublic;
     this.data.matchId = matchId;
     this.data.engine = createMatch({ matchId, players: this.publicPlayers() });
     this.controls = [makeControl(), makeControl()];
@@ -271,6 +274,7 @@ export class RoomSession {
     const final = this.data.engine.final ?? resolveMatch(this.data.engine, reason, outcomeBySeat);
     this.data.engine.final = final;
     this.data.engine.statsBySeat = final.statsBySeat;
+    const rankMatch = this.rankingsPublic && this.data.rankMatch === true;
     const result = {
       type: 'finished',
       matchId,
@@ -278,7 +282,7 @@ export class RoomSession {
       players: this.data.members.map(({ name, faceId }) => ({ name, faceId })),
       ...final,
       expiresAt: now + RESULT_LIFETIME_MS,
-      rankingStatus: 'pending',
+      rankingStatus: rankMatch ? 'pending' : 'disabled',
     };
     const memberHashes = this.data.members.map(member => member.hash);
     this.data.history[matchId] = { result, memberHashes };
@@ -339,6 +343,7 @@ export class RoomSession {
   }
 
   queueRankingEvent(seat, kind, result) {
+    if (!this.rankingsPublic || this.data.rankMatch !== true) return;
     const { playerId, name } = this.data.members[seat];
     this.events.push({
       matchId: this.matchId,
