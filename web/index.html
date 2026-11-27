@@ -79,7 +79,7 @@
           </label>
           <div class="row">
             <button id="copy-room" type="button" data-i18n="copy">IDをコピー</button>
-            <a id="invite-share" class="button" target="_blank" rel="noopener noreferrer" data-i18n="share">Xにシェア</a>
+            <button id="invite-share" type="button" data-i18n="inviteShare">Xでシェア</button>
           </div>
           <p id="copy-status" class="status" role="status"></p>
           <button id="enter-lobby" class="primary" type="button" data-i18n="enter">待機室へ</button>
@@ -105,11 +105,12 @@
         <p class="muted lobby-code"><span data-i18n="roomId">ルームID</span> <b id="lobby-code"></b></p>
         <div id="lobby-players" class="players"></div>
         <p id="lobby-status" class="status" role="status"></p>
+        <button id="reload-lobby" type="button" data-i18n="m051" hidden>再読み込み</button>
         <div id="countdown" class="countdown" role="status" hidden></div>
         <button id="ready" class="primary" type="button" data-i18n="ready">準備完了</button>
         <div class="row" id="owner-actions" hidden>
-          <button id="swap-seats" type="button" data-i18n="swapSeats">1Pと2Pを入れ替える</button>
-          <button id="kick-guest" class="danger" type="button" data-i18n="kickGuest">参加者を退出させる</button>
+          <button id="swap-seats" type="button" data-i18n="swapSeats">席を入れ替える</button>
+          <button id="kick-guest" class="danger" type="button" data-i18n="kickGuest">相手を外す</button>
         </div>
         <button id="leave-lobby" class="back" type="button" data-i18n="leaveRoom" hidden>ルームから退出</button>
         <button id="lobby-home" class="back" type="button" data-home data-i18n="home">ホーム</button>
@@ -172,9 +173,8 @@
         <p id="score-status" class="status" role="status"></p>
         <div id="score-actions" class="stack">
           <button id="return-to-room" class="primary" type="button" data-i18n="return">ルームに戻る</button>
-          <a id="score-share" class="button" target="_blank" rel="noopener noreferrer" data-i18n="share">Xにシェア</a>
+          <button id="score-share" type="button" data-i18n="shareResult">Xに結果をシェア</button>
           <button type="button" data-home data-i18n="home">ホーム</button>
-          <a class="button ranking" hidden target="_blank" rel="noopener noreferrer" data-i18n="m009">ランキング</a>
         </div>
       </div>
     </section>

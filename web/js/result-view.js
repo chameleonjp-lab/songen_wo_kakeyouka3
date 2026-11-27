@@ -1,4 +1,4 @@
-import { $ } from "./view.js";
+import { $, displayName } from "./view.js";
 import { language, t } from "./i18n.js";
 
 const outcomes = { win: "m036", loss: "m112", draw: "m113", interrupted: "interrupted" };
@@ -7,8 +7,26 @@ export function outcomeText(result, seat) {
   return t(outcomes[result.outcomeBySeat[seat]] ?? "interrupted");
 }
 
-export function reasonText(result) {
-  return t(result.reason === "forfeit" ? "forfeitReason" : result.reason);
+const limbs = ["leftArm", "rightArm", "leftFoot", "rightFoot"];
+
+export function dignityText(result, seat) {
+  const outcome = result.outcomeBySeat[seat];
+  if (outcome !== "win" && outcome !== "loss") return "";
+
+  const opponentSeat = 1 - seat;
+  const won = outcome === "win";
+  const parts = result.finalSnapshot?.players?.[won ? opponentSeat : seat]?.parts;
+  const destroyed = limbs.filter(part => parts?.[part]?.broken).length;
+  const intensity = destroyed ? t(`dignityLevel${destroyed}`) : "";
+  const text = t(won ? "dignityWin" : "dignityLoss", {
+    p0: displayName(result.players?.[opponentSeat], opponentSeat), p1: intensity,
+  });
+  return text + (parts?.head?.broken ? (won ? "💪" : "💩💦") : "");
+}
+
+function reasonText(result, seat) {
+  if (result.reason === "interrupted") return "";
+  return dignityText(result, seat) || t(result.reason === "forfeit" ? "forfeitReason" : result.reason);
 }
 
 export function formatScore(score) {
@@ -17,8 +35,9 @@ export function formatScore(score) {
 
 export function showAnnouncement(result, seat, board) {
   $("#announcement-outcome").textContent = outcomeText(result, seat);
-  $("#announcement-reason").textContent = reasonText(result);
-  $("#announcement-reason").hidden = result.reason === "interrupted";
+  const reason = reasonText(result, seat);
+  $("#announcement-reason").textContent = reason;
+  $("#announcement-reason").hidden = !reason;
   board.render(result.finalSnapshot);
 }
 
@@ -40,8 +59,9 @@ function breakdownRows(result, seat) {
 
 export function showScore(result, seat, canReturn, rankingsPublic) {
   $("#score-outcome").textContent = outcomeText(result, seat);
-  $("#score-reason").textContent = reasonText(result);
-  $("#score-reason").hidden = result.reason === "interrupted";
+  const reason = reasonText(result, seat);
+  $("#score-reason").textContent = reason;
+  $("#score-reason").hidden = !reason;
   $("#score-value").textContent = formatScore(result.scoreBySeat[seat]);
   $("#return-to-room").hidden = !canReturn;
   const breakdown = $("#score-breakdown");

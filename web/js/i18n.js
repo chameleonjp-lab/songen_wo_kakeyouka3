@@ -40,6 +40,7 @@ export function t(key, values = {}) {
   const original = globalThis.SongenMessages[language];
   const title = `${original.m001}3`;
   const share = language === "ja" ? "Xにシェア" : original.m008;
+  if (key === "inviteShare") return language === "ja" ? "Xでシェア" : share;
   const text = key === "title" ? title : key === "share" ? share : onlineMessages[language][key] ?? original[key] ?? key;
   return text.replace(/\{(p\d+)\}/g, (_, name) => String(values[name] ?? ""));
 }

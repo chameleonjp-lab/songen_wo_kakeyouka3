@@ -4,6 +4,16 @@ const publicUrl = "https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/";
 const view = (page, name) => page.locator(`[data-screen="${name}"]`);
 const part = (page, board, seat, name) => page.locator(`#${board} .fighter[data-seat="${seat}"] [data-part="${name}"]`);
 
+const composer = /^https:\/\/twitter\.com\/intent\/tweet\?/;
+
+async function sharedText(page, button) {
+  await page.route(composer, route => route.fulfill({ contentType: "text/html", body: "<h1>X share</h1>" }), { times: 1 });
+  await Promise.all([page.waitForURL(composer), button.click()]);
+  const text = new URL(page.url()).searchParams.get("text");
+  await page.goBack();
+  return text;
+}
+
 async function hostRoom(page, capture) {
   await page.goto("./");
   await page.locator("#language").selectOption("ja");
@@ -35,9 +45,9 @@ async function hostRoom(page, capture) {
   const input = page.locator("#invite-code");
   await expect(input).toHaveValue(/^[0-9]{4}$/);
   const code = await input.inputValue();
-  const href = await page.locator("#invite-share").getAttribute("href");
-  const share = new URL(href).searchParams.get("text");
-  expect(share.split("\n")).toEqual(["私と尊厳を賭けようよ！", `ルームID：${code}`, "#尊厳を賭けようか3", `${publicUrl}#room=${code}`]);
+  await page.locator("#invite-share").scrollIntoViewIfNeeded();
+  await expect(page.getByRole("button", { name: "Xでシェア" })).toBeInViewport();
+  await capture(page, "02-room-invite");
   await page.getByRole("button", { name: "待機室へ" }).click();
   await expect(page.locator("#lobby-status")).toHaveText("相手を待っています");
   return code;
@@ -130,7 +140,8 @@ test("two independent players can play, reload, keep the final board, and rematc
     await expect(guest.locator("#show-score")).toBeDisabled();
     await expect(host.locator("#show-score")).toHaveCSS("background-color", "rgb(67, 69, 76)");
     await expect(host.locator("#announcement-outcome")).toHaveText("勝利");
-    await expect(host.locator("#announcement-reason")).toHaveText("降参で決着");
+    await expect(host.locator("#announcement-reason")).toHaveText("Gastの尊厳を少し破壊した");
+    await expect(guest.locator("#announcement-reason")).toHaveText("<ほすと> hat meine Würde ein wenig zerstört");
     await expect(part(host, "final-board", 1, "leftArm")).toHaveAttribute("data-broken", "true");
     await expect(part(guest, "final-board", 1, "leftArm")).toHaveAttribute("data-broken", "true");
     const tick = await host.locator("#final-board").getAttribute("data-tick");
@@ -153,14 +164,16 @@ test("two independent players can play, reload, keep the final board, and rematc
     await capture(host, "05-announcement");
     await host.locator("#show-score").click();
     await guest.locator("#show-score").click();
-    await expect(host.locator("#score-actions > :visible")).toHaveText(["ルームに戻る", "Xにシェア", "ホーム"]);
+    await expect(host.locator("#score-actions > :visible")).toHaveText(["ルームに戻る", "Xに結果をシェア", "ホーム"]);
     await expect(guest.locator("#score-actions > :visible")).toHaveCount(3);
     await expect(guest.locator("#return-to-room")).toBeVisible();
     await expect(host.locator("#score-breakdown > div")).toHaveCount(9);
-    await expect(host.locator("#score-actions .ranking")).toBeHidden();
     await expect(host.locator("#ranking-status")).toBeHidden();
-    const hostShare = new URL(await host.locator("#score-share").getAttribute("href")).searchParams.get("text");
+    await expect(host.locator("#score-reason")).toHaveText("Gastの尊厳を少し破壊した");
+    const hostShare = await sharedText(host, host.getByRole("button", { name: "Xに結果をシェア" }));
+    await expect(view(host, "score")).toBeVisible();
     expect(hostShare).toContain(`勝利・スコア ${await host.locator("#score-value").textContent()}`);
+    expect(hostShare.split("\n")).toContain("Gastの尊厳を少し破壊した");
     expect(hostShare).toContain(publicUrl);
 
     await capture(host, "06-score");
@@ -253,6 +266,22 @@ test("manual invite is selectable when clipboard fails and all original language
   await expect(page.locator("#copy-status")).toHaveText(/IDを選択してコピー/);
   const selection = await page.locator("#invite-code").evaluate(input => [input.selectionStart, input.selectionEnd]);
   expect(selection).toEqual([0, 4]);
+  // In-app blockers can hide links that already point to a social sharing service.
+  await page.addStyleTag({ content: 'a[href^="https://twitter.com/intent/"] { display: none !important; }' });
+  const shareButton = page.getByRole("button", { name: "Xでシェア" });
+  await expect(shareButton).toBeVisible();
+  const copy = await page.locator("#copy-room").boundingBox();
+  const share = await shareButton.boundingBox();
+  expect(share.x).toBeGreaterThan(copy.x + copy.width);
+  expect(share.y).toBeCloseTo(copy.y);
+
+  const code = await page.locator("#invite-code").inputValue();
+  const text = await sharedText(page, shareButton);
+  expect(text.split("\n")).toEqual([
+    "私と尊厳を賭けようよ！", `ルームID：${code}`, "#尊厳を賭けようか3", `${publicUrl}#room=${code}`
+  ]);
+  await expect(page.locator("#invite-code")).toHaveValue(code);
+  await expect(shareButton).toBeVisible();
 });
 
 const sampleRoom = "0937";
@@ -280,6 +309,77 @@ async function resumeGame(page) {
     }));
   }, { code: sampleRoom, matchId: sampleMatch });
 }
+
+test("both room roles can reload after a connection failure and keep their seat", async ({ browser, baseURL }, testInfo) => {
+  for (const owner of [true, false]) {
+    const seat = owner ? 1 : 0;
+    const context = await browser.newContext({ baseURL, locale: "ja-JP", viewport: { width: 402, height: 700 }, isMobile: true, hasTouch: true });
+    try {
+      const page = await context.newPage();
+      const seatKey = "a".repeat(32);
+      await page.addInitScript(({ code, seat, owner, seatKey }) => {
+        if (sessionStorage.getItem("test-room-seeded")) return;
+        sessionStorage.setItem("test-room-seeded", "true");
+        sessionStorage.setItem("songen3_active_room", JSON.stringify({ code, seat, owner, seatKey, screen: "lobby" }));
+      }, { code: sampleRoom, seat, owner, seatKey });
+
+      let documentLoads = 0;
+      let initialSocket;
+      let connectionDropped = false;
+      let lastAuth;
+      page.on("request", request => {
+        if (request.isNavigationRequest() && request.frame() === page.mainFrame()) documentLoads++;
+      });
+      await page.routeWebSocket(`**/v1/rooms/${sampleRoom}/socket`, socket => {
+        socket.onMessage(raw => {
+          const packet = JSON.parse(raw);
+          if (packet.type !== "auth") return;
+          if (connectionDropped && documentLoads === 1) {
+            socket.send(JSON.stringify({ type: "error", code: "network" }));
+            return;
+          }
+          initialSocket ??= socket;
+          lastAuth = packet;
+          socket.send(JSON.stringify({
+            ...roomPacket("waiting"), owner, seat, layout: 1,
+            players: samplePlayers.map(player => ({ ...player, ready: false })),
+          }));
+        });
+      });
+
+      await page.goto("./");
+      const reload = page.getByRole("button", { name: "再読み込み" });
+      await expect(page.locator("#ready")).toBeEnabled();
+      await expect(reload).toBeHidden();
+      if (owner) {
+        for (const label of ["席を入れ替える", "相手を外す"]) {
+          const button = page.getByRole("button", { name: label });
+          await expect(button).toBeVisible();
+          expect(await button.evaluate(node => {
+            const labelRange = document.createRange();
+            labelRange.selectNodeContents(node);
+            return labelRange.getClientRects().length;
+          })).toBe(1);
+        }
+      }
+
+      connectionDropped = true;
+      initialSocket.close({ code: 1011, reason: "test disconnect" });
+      await expect(reload).toBeVisible();
+      await expect(page.locator("#ready")).toBeDisabled();
+      await page.screenshot({ path: testInfo.outputPath(`screen-lobby-reload-${owner ? "owner" : "guest"}.png`), scale: "css" });
+      await Promise.all([page.waitForEvent("load"), reload.click()]);
+      await expect(view(page, "lobby")).toBeVisible();
+      await expect(page.locator("#lobby-code")).toHaveText(sampleRoom);
+      await expect(page.locator("#lobby-players [data-local=true]")).toHaveAttribute("data-seat", String(seat));
+      await expect(page.locator("#ready")).toBeEnabled();
+      await expect(reload).toBeHidden();
+      expect(lastAuth.seatKey).toBe(seatKey);
+    } finally {
+      await context.close();
+    }
+  }
+});
 
 test("a restarted server can confirm interruption at an older checkpoint", async ({ page }) => {
   const { createMatch, toSnapshot } = await import("../../game/rules.js");

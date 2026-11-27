@@ -156,6 +156,8 @@ legend { margin-bottom: 4px; }
 .player-meta [data-you] { color: var(--accent); }
 .player-meta [data-ready] { color: #aaf5bd; }
 .lobby-code { margin-top: -.5em; }
+#owner-actions button { padding-inline: 8px; text-wrap: balance; }
+[lang="ja"] #owner-actions button { font-size: clamp(.875rem, 4vw, 1rem); }
 .countdown { font-size: 3.3rem; font-weight: 850; color: var(--accent); text-align: center; line-height: 1; }
 
 .arena-screen, .announcement { height: 100dvh; min-height: 300px; overflow: auto; overscroll-behavior: contain; }

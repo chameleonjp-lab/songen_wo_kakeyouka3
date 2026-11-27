@@ -211,21 +211,21 @@ const statusText = {
 };
 
 const shareText = {
-  ja: ["{p0}\n{p1}・スコア {p2}\n{p3}"],
-  en: ["{p0}\n{p1} · Score {p2}\n{p3}"],
-  es: ["{p0}\n{p1} · Puntuación {p2}\n{p3}"],
-  "pt-BR": ["{p0}\n{p1} · Pontuação {p2}\n{p3}"],
-  "zh-Hans": ["{p0}\n{p1} · 得分 {p2}\n{p3}"],
-  fr: ["{p0}\n{p1} · Score {p2}\n{p3}"],
-  de: ["{p0}\n{p1} · Punktzahl {p2}\n{p3}"],
-  ko: ["{p0}\n{p1} · 점수 {p2}\n{p3}"],
-  ru: ["{p0}\n{p1} · Очки {p2}\n{p3}"],
-  it: ["{p0}\n{p1} · Punteggio {p2}\n{p3}"],
-  "zh-Hant": ["{p0}\n{p1} · 得分 {p2}\n{p3}"],
-  id: ["{p0}\n{p1} · Skor {p2}\n{p3}"],
-  tr: ["{p0}\n{p1} · Skor {p2}\n{p3}"],
-  vi: ["{p0}\n{p1} · Điểm {p2}\n{p3}"],
-  th: ["{p0}\n{p1} · คะแนน {p2}\n{p3}"]
+  ja: ["{p0}\n{p1}・スコア {p2}\n{p4}{p3}"],
+  en: ["{p0}\n{p1} · Score {p2}\n{p4}{p3}"],
+  es: ["{p0}\n{p1} · Puntuación {p2}\n{p4}{p3}"],
+  "pt-BR": ["{p0}\n{p1} · Pontuação {p2}\n{p4}{p3}"],
+  "zh-Hans": ["{p0}\n{p1} · 得分 {p2}\n{p4}{p3}"],
+  fr: ["{p0}\n{p1} · Score {p2}\n{p4}{p3}"],
+  de: ["{p0}\n{p1} · Punktzahl {p2}\n{p4}{p3}"],
+  ko: ["{p0}\n{p1} · 점수 {p2}\n{p4}{p3}"],
+  ru: ["{p0}\n{p1} · Очки {p2}\n{p4}{p3}"],
+  it: ["{p0}\n{p1} · Punteggio {p2}\n{p4}{p3}"],
+  "zh-Hant": ["{p0}\n{p1} · 得分 {p2}\n{p4}{p3}"],
+  id: ["{p0}\n{p1} · Skor {p2}\n{p4}{p3}"],
+  tr: ["{p0}\n{p1} · Skor {p2}\n{p4}{p3}"],
+  vi: ["{p0}\n{p1} · Điểm {p2}\n{p4}{p3}"],
+  th: ["{p0}\n{p1} · คะแนน {p2}\n{p4}{p3}"]
 };
 
 const detailKeys = ["winBonus", "headBreak", "brokenPartHits", "hitsOnOwnBrokenParts"];
@@ -249,7 +249,7 @@ const detailText = {
 
 const roomKeys = ["swapSeats", "kickGuest", "leaveRoom", "clearRoomCode", "kicked"];
 const roomText = {
-  ja: ["1Pと2Pを入れ替える", "参加者を退出させる", "ルームから退出", "ルームIDを消す", "ルームオーナーの操作で退出しました。"],
+  ja: ["席を入れ替える", "相手を外す", "ルームから退出", "ルームIDを消す", "ルームオーナーの操作で退出しました。"],
   en: ["Swap P1 and P2", "Remove guest", "Leave room", "Clear room ID", "The room owner removed you."],
   es: ["Intercambiar J1 y J2", "Expulsar al invitado", "Salir de la sala", "Borrar ID de sala", "El anfitrión te expulsó de la sala."],
   "pt-BR": ["Trocar J1 e J2", "Remover convidado", "Sair da sala", "Apagar ID da sala", "O anfitrião removeu você da sala."],
@@ -266,9 +266,28 @@ const roomText = {
   th: ["สลับ P1 กับ P2", "นำผู้เข้าร่วมออก", "ออกจากห้อง", "ล้างรหัสห้อง", "เจ้าของห้องนำคุณออกจากห้องแล้ว"]
 };
 
+const dignityKeys = ["shareResult", "dignityWin", "dignityLoss", "dignityLevel1", "dignityLevel2", "dignityLevel3", "dignityLevel4"];
+const dignityText = {
+  ja: ["Xに結果をシェア", "{p0}の尊厳を{p1}破壊した", "{p0}に尊厳を{p1}破壊された", "少し", "すごく", "たくさん", "徹底的に"],
+  en: ["Share result on X", "I destroyed {p0}’s dignity{p1}", "{p0} destroyed my dignity{p1}", " a little", " badly", " severely", " completely"],
+  es: ["Compartir resultado en X", "Destruí la dignidad de {p0}{p1}", "{p0} destruyó mi dignidad{p1}", " un poco", " en gran medida", " de forma devastadora", " por completo"],
+  "pt-BR": ["Compartilhar resultado no X", "Destruí a dignidade de {p0}{p1}", "{p0} destruiu minha dignidade{p1}", " um pouco", " em grande parte", " de forma devastadora", " por completo"],
+  "zh-Hans": ["在 X 分享结果", "我{p1}摧毁了{p0}的尊严", "{p0}{p1}摧毁了我的尊严", "稍微", "大幅", "狠狠地", "彻底"],
+  fr: ["Partager le résultat sur X", "J’ai détruit la dignité de {p0}{p1}", "{p0} a détruit ma dignité{p1}", " un peu", " en grande partie", " sans pitié", " complètement"],
+  de: ["Ergebnis auf X teilen", "Ich habe {p0}s Würde{p1} zerstört", "{p0} hat meine Würde{p1} zerstört", " ein wenig", " stark", " massiv", " vollständig"],
+  ko: ["X에 결과 공유", "{p0}의 존엄을 {p1}파괴했다", "{p0}에게 존엄을 {p1}파괴당했다", "조금 ", "크게 ", "엄청나게 ", "철저히 "],
+  ru: ["Поделиться результатом в X", "Я{p1} уничтожил достоинство игрока {p0}", "Игрок {p0}{p1} уничтожил моё достоинство", " немного", " серьёзно", " жестоко", " полностью"],
+  it: ["Condividi il risultato su X", "Ho distrutto la dignità di {p0}{p1}", "{p0} ha distrutto la mia dignità{p1}", " un po’", " in gran parte", " senza pietà", " del tutto"],
+  "zh-Hant": ["在 X 分享結果", "我{p1}摧毀了{p0}的尊嚴", "{p0}{p1}摧毀了我的尊嚴", "稍微", "大幅", "狠狠地", "徹底"],
+  id: ["Bagikan hasil di X", "Aku menghancurkan martabat {p0}{p1}", "{p0} menghancurkan martabatku{p1}", " sedikit", " cukup parah", " habis-habisan", " sepenuhnya"],
+  tr: ["Sonucu X’te paylaş", "{p0} adlı oyuncunun onurunu{p1} kırdım", "{p0} onurumu{p1} kırdı", " biraz", " epey", " ağır biçimde", " tamamen"],
+  vi: ["Chia sẻ kết quả lên X", "Tôi đã{p1} phá tan phẩm giá của {p0}", "{p0} đã{p1} phá tan phẩm giá của tôi", " phần nào", " đáng kể", " không thương tiếc", " hoàn toàn"],
+  th: ["แชร์ผลบน X", "ฉันทำลายศักดิ์ศรีของ {p0}{p1}", "{p0} ทำลายศักดิ์ศรีของฉัน{p1}", "เล็กน้อย", "อย่างหนัก", "แบบยับเยิน", "จนหมดสิ้น"]
+};
+
 export const onlineMessages = Object.fromEntries(Object.keys(interfaceText).map(language => {
-  const keys = [...interfaceKeys, ...statusKeys, ...shareKeys, ...detailKeys, ...roomKeys];
-  const values = [...interfaceText[language], ...statusText[language], ...shareText[language], ...detailText[language], ...roomText[language]];
+  const keys = [...interfaceKeys, ...statusKeys, ...shareKeys, ...detailKeys, ...roomKeys, ...dignityKeys];
+  const values = [...interfaceText[language], ...statusText[language], ...shareText[language], ...detailText[language], ...roomText[language], ...dignityText[language]];
   if (keys.length !== values.length) throw new Error(`Incomplete translation: ${language}`);
   return [language, Object.fromEntries(keys.map((key, index) => [key, values[index]]))];
 }));
