@@ -6,6 +6,7 @@ import {
   ROOM_CODE_DIGITS,
   VERSION,
   isKey,
+  isMatchId,
   normalizeCode,
   isShortCode,
   parseMessage,
@@ -125,10 +126,10 @@ export default {
     const body = await readJSON(request);
     if (path?.[2] === 'leave') {
       if (body?.version !== VERSION) return reject('version', cors);
-      if (!isKey(body.seatKey)) return reject('invalid', cors);
+      if (!isKey(body.seatKey) || (body.matchId != null && !isMatchId(body.matchId))) return reject('invalid', cors);
       const response = await env.MATCH_ROOMS.getByName(code).fetch('https://room.internal/leave', {
         method: 'POST',
-        body: JSON.stringify({ hash: await digest('seat', body.seatKey) }),
+        body: JSON.stringify({ hash: await digest('seat', body.seatKey), matchId: body.matchId }),
       });
       return reply(await response.json(), response.status, cors);
     }
@@ -268,7 +269,7 @@ export class MatchRoom {
         return new Response(null, { status: 101, webSocket: client });
       });
     }
-    const { code, profile, hash } = await request.json();
+    const { code, profile, hash, matchId } = await request.json();
     const action = new URL(request.url).pathname.slice(1);
     return this.run(async () => {
       const now = Date.now();
@@ -276,8 +277,8 @@ export class MatchRoom {
       if (action === 'leave') {
         const before = this.session.phase;
         const memberHashes = this.session.data.members.map(member => member?.hash);
-        const seat = this.session.leaveByHash(hash, now);
-        if (seat === null) return reject('credentials');
+        const seat = this.session.leaveByHash(hash, now, matchId);
+        if (seat === null) return matchId ? reply({ left: true }) : reject('credentials');
         if (this.session.phase === 'expired') this.closeCurrent('opponent_left', 1 - seat, memberHashes[1 - seat]);
         this.closeCurrent('disconnected', seat, hash);
         await this.transition(before, now);
@@ -395,7 +396,11 @@ export class MatchRoom {
     }
     ws.serializeAttachment({ profile: { ...profile, hash }, historicalMatchId: profile.historical ? message.matchId : null });
     if (profile.historical) {
-      this.send(ws, { ...this.session.result(message.matchId), seat: profile.seat });
+      this.send(ws, {
+        ...this.session.result(message.matchId),
+        seat: profile.seat,
+        canReturn: this.session.canReturnToRoom(this.session.seatFor(hash), message.matchId, now),
+      });
       return;
     }
     for (const other of this.ctx.getWebSockets()) {
@@ -615,13 +620,10 @@ export class MatchRoom {
       return;
     }
     await this.commit();
-    for (const { result } of changed) {
+    for (const { result, memberHashes } of changed) {
       for (const ws of this.ctx.getWebSockets()) {
         const attachment = ws.deserializeAttachment();
-        if (attachment?.historicalMatchId === result.matchId ||
-            (!attachment?.profile?.historical && this.session.matchId === result.matchId && attachment?.profile)) {
-          this.send(ws, result);
-        }
+        if (!attachment?.closed && memberHashes.includes(attachment?.profile?.hash)) this.send(ws, result);
       }
     }
   }

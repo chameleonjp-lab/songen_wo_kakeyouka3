@@ -104,11 +104,12 @@ export class RoomSession {
   }
 
   connect(hash, requestedMatch, now) {
-    if (requestedMatch && this.matchId !== requestedMatch) {
+    const seat = this.seatFor(hash);
+    if (requestedMatch && (this.matchId !== requestedMatch || seat < 0)) {
       const item = this.data.history[requestedMatch];
-      const seat = item?.memberHashes.indexOf(hash) ?? -1;
-      if (seat >= 0 && item.result.expiresAt > now) {
-        return { seat, generation: null, historical: true };
+      const resultSeat = item?.memberHashes.indexOf(hash) ?? -1;
+      if (resultSeat >= 0 && item.result.expiresAt > now) {
+        return { seat: resultSeat, generation: null, historical: true };
       }
       return { error: 'expired' };
     }
@@ -116,7 +117,6 @@ export class RoomSession {
         (this.phase === 'finished' && this.result(this.matchId).expiresAt <= now)) {
       return { error: 'expired' };
     }
-    const seat = this.seatFor(hash);
     if (seat < 0) return { error: this.data.code ? 'credentials' : 'expired' };
     const generation = ++this.data.generations[seat];
     this.data.members[seat].seen = now;
@@ -203,8 +203,12 @@ export class RoomSession {
     return this.leaveByHash(this.data.members[seat].hash, now) !== null;
   }
 
-  leaveByHash(hash, now) {
-    if (!['waiting', 'countdown'].includes(this.phase)) return null;
+  leaveByHash(hash, now, matchId = null) {
+    if (matchId) {
+      const matchesFinishedRoom = this.phase === 'finished' && this.matchId === matchId;
+      const matchesReopenedRoom = ['waiting', 'countdown'].includes(this.phase) && this.data.returningFrom === matchId;
+      if (!matchesFinishedRoom && !matchesReopenedRoom) return null;
+    } else if (!['waiting', 'countdown'].includes(this.phase)) return null;
     const seat = this.seatFor(hash);
     if (seat < 0) return null;
     this.disconnect(seat, this.data.generations[seat], now);
@@ -265,6 +269,7 @@ export class RoomSession {
     this.data.startAt = null;
     this.data.startedAt = now;
     this.data.rankMatch = this.rankingsPublic;
+    this.data.pauseRemaining = PAUSE_BUDGET_MS;
     this.data.matchId = matchId;
     this.data.returningFrom = null;
     this.data.engine = createMatch({ matchId, players: this.publicPlayers() });
@@ -351,13 +356,21 @@ export class RoomSession {
     return this.finishOnce(matchId, 'forfeit', outcome, now);
   }
 
-  returnToRoom(seat, generation, matchId, now) {
+  canReturnToRoom(seat, matchId, now) {
+    const member = this.data.members[seat];
     const bothCanReturn = isShortCode(this.data.code);
-    if ((!bothCanReturn && !this.isOwner(seat)) || !this.isCurrent(seat, generation)) return false;
+    if (!member || (!bothCanReturn && !this.isOwner(seat))) return false;
     const saved = this.data.history[matchId];
-    if (!saved || saved.result.expiresAt <= now || !saved.memberHashes.includes(this.data.members[seat].hash)) return false;
-    if (bothCanReturn && this.phase === 'waiting' && this.data.returningFrom === matchId) return true;
-    if (this.phase !== 'finished' || matchId !== this.matchId) return false;
+    if (!saved || saved.result.expiresAt <= now || !saved.memberHashes.includes(member.hash)) return false;
+    return (this.phase === 'finished' && matchId === this.matchId) ||
+      (bothCanReturn && this.phase === 'waiting' && matchId === this.data.returningFrom);
+  }
+
+  returnToRoom(seat, generation, matchId, now) {
+    if (!this.isCurrent(seat, generation) || !this.canReturnToRoom(seat, matchId, now)) return false;
+    this.data.members[seat].seen = now;
+    if (this.phase === 'waiting') return true;
+    const bothCanReturn = isShortCode(this.data.code);
     this.data.phase = 'waiting';
     this.data.expiresAt = now + INVITE_LIFETIME_MS;
     this.data.startedAt = null;

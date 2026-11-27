@@ -237,8 +237,88 @@ test("only the owner can swap or remove a guest, and the guest can clear a remem
     await guest.reload();
     await guest.locator("#prepare").click();
     await expect(guest.locator("#join-code")).toHaveValue("");
+
+    await guest.locator("#join-code").fill(code);
+    await guest.locator("#join-button").click();
+    await expect(view(guest, "lobby")).toBeVisible();
+    await host.locator("#lobby-home").click();
+    await expect(view(guest, "register")).toBeVisible();
+    await expect(guest.locator("#register-status")).toHaveText("相手が退出しました。");
+    await guest.reload();
+    await expect(view(guest, "home")).toBeVisible();
   } finally {
     await guestContext.close();
+  }
+});
+
+test("cancelling while the server accepts a join releases the seat before retry", async ({ page: host, browser, baseURL }) => {
+  const code = await hostRoom(host, async () => {});
+  const context = await browser.newContext({ baseURL, locale: "ja-JP", viewport: { width: 402, height: 700 }, isMobile: true });
+  try {
+    const guest = await context.newPage();
+    let acceptJoin, deliverReply;
+    const accepted = new Promise(resolve => { acceptJoin = resolve; });
+    const deliver = new Promise(resolve => { deliverReply = resolve; });
+    await guest.route(`**/v1/rooms/${code}/join`, async route => {
+      const response = await route.fetch();
+      acceptJoin(response.status());
+      await deliver;
+      await route.fulfill({ response });
+    }, { times: 1 });
+    await guest.goto(`./#room=${code}`);
+    await guest.locator("#join-button").click();
+    try {
+      expect(await accepted).toBe(200);
+      await view(guest, "register").locator("[data-home]").click();
+      await guest.locator("#prepare").click();
+      await guest.locator("#join-button").click();
+    } finally {
+      deliverReply();
+    }
+    await expect(view(guest, "lobby")).toBeVisible();
+    await expect(guest.locator("#ready")).toBeEnabled();
+  } finally {
+    await context.close();
+  }
+});
+
+test("leaving a score releases the seat and kicking a seat preserves the other score", async ({ page: host, browser, baseURL }) => {
+  const code = await hostRoom(host, async () => {});
+  const context = await browser.newContext({ baseURL, locale: "ja-JP", viewport: { width: 402, height: 700 }, isMobile: true });
+  try {
+    const guest = await context.newPage();
+    await guest.goto(`./#room=${code}`);
+    await guest.locator("#join-button").click();
+    async function playToScore() {
+      await host.locator("#ready").click();
+      await guest.locator("#ready").click();
+      await host.locator("#forfeit").click();
+      await host.locator("#confirm-forfeit").click();
+      await Promise.all([host, guest].map(page => page.locator("#show-score").click()));
+    }
+
+    await playToScore();
+    await view(guest, "score").locator("[data-home]").click();
+    await host.locator("#return-to-room").click();
+    await expect(host.locator("#lobby-players [data-seat='1']")).toHaveAttribute("data-present", "false");
+    await guest.locator("#prepare").click();
+    await guest.locator("#join-button").click();
+    await playToScore();
+
+    const score = await guest.locator("#score-value").textContent();
+    await host.locator("#return-to-room").click();
+    await host.locator("#kick-guest").click();
+    await expect(guest.locator("#return-to-room")).toBeHidden();
+    await expect(guest.locator("#score-value")).toHaveText(score);
+    await guest.reload();
+    await expect(view(guest, "score")).toBeVisible();
+    await expect(guest.locator("#return-to-room")).toBeHidden();
+    await expect(guest.locator("#score-value")).toHaveText(score);
+    await expect(guest.locator("#score-share")).toBeEnabled();
+    await view(guest, "score").locator("[data-home]").click();
+    await expect(view(guest, "home")).toBeVisible();
+  } finally {
+    await context.close();
   }
 });
 

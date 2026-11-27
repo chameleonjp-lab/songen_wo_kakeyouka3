@@ -1,7 +1,7 @@
 import "./audio.js";
 import { normalizeCode, isShortCode, emptyInput } from "../../game/protocol.js";
 import { applyLanguage, language, languages, setLanguage, t } from "./i18n.js";
-import { clearReservation, createMatchClient, leaveRoom, loadSession, readStorage, registerRoom, saveSession, writeStorage } from "./match-client.js";
+import { clearReservation, createMatchClient, leaveRoom, loadSession, queueRoomExit, readStorage, registerRoom, saveSession, writeStorage } from "./match-client.js";
 import { $, FACES, createBoard, createPhoto, renderHud, renderPlayers, timeLeft } from "./view.js";
 import { createKeyboardSettings } from "./keyboard.js";
 import { dignityText, formatScore, outcomeText, showAnnouncement, showScore } from "./result-view.js";
@@ -43,6 +43,7 @@ let ownLobbyStatus = "";
 let scoreStatus = "";
 let gameError = "";
 let registrationAttempt = 0;
+let registrationPending = null;
 let leaveRetryTimer = 0;
 
 $("#home-ranking").href = rankingUrl;
@@ -74,7 +75,7 @@ const client = createMatchClient({
 });
 
 const ownsRoom = () => session?.owner ?? session?.seat === 0;
-const canReturnToLobby = () => isShortCode(session?.code) || ownsRoom();
+const canReturnToLobby = () => !session?.returnUnavailable && (isShortCode(session?.code) || ownsRoom());
 
 function showScreen(name) {
   if (shown === "game" && name !== "game") {
@@ -166,7 +167,7 @@ function refreshLobby() {
   const canManage = waiting && !managePending && client.connected && Boolean(room?.players[1 - seat]);
   $("#swap-seats").disabled = !canManage;
   $("#kick-guest").disabled = !canManage;
-  $("#lobby-home").hidden = !ownsRoom();
+  $("#lobby-home").hidden = !ownsRoom() && client.connected;
   $("#leave-lobby").hidden = ownsRoom();
   $("#leave-lobby").disabled = leaving || !client.connected || !["waiting", "countdown"].includes(room?.phase);
   updateLobbyClock();
@@ -243,8 +244,15 @@ function goHome({ target = "home", leave = true } = {}) {
   if (shown === "game" && connectStatus !== "failed") return;
   registrationAttempt++;
   busy = false;
-  const leavingRoom = leave && (shown === "lobby" || shown === "register");
-  if (!client.close({ leave: leavingRoom }) && leavingRoom) leaveRoom(session).catch(() => {});
+  const leavingRoom = leave && ["register", "lobby", "score"].includes(shown);
+  if (leavingRoom && session) queueRoomExit(session);
+  if (registrationPending) {
+    const { reservation, request } = registrationPending;
+    queueRoomExit(reservation, request.catch(() => null));
+    clearReservation();
+    registrationPending = null;
+  }
+  client.close();
   session = null;
   room = null;
   lastSnapshot = null;
@@ -273,6 +281,7 @@ async function register(kind) {
     return;
   }
   const name = $("#player-name").value.trim();
+  const faceId = selectedFace;
   if (kind === "join") saveJoinCode(code);
   const attempt = ++registrationAttempt;
   writeStorage(browserNameKey, name);
@@ -280,10 +289,17 @@ async function register(kind) {
   registerStatus = "connecting";
   refreshRegister();
   try {
-    const reservation = await registerRoom(kind, { code, name, faceId: selectedFace });
+    await queueRoomExit();
+    if (attempt !== registrationAttempt) return;
+    const pending = { reservation: null };
+    pending.request = registerRoom(kind, { code, name, faceId, onReserve(reservation) {
+      pending.reservation = reservation;
+    } });
+    registrationPending = pending;
+    const reservation = await pending.request;
     if (attempt !== registrationAttempt) return;
     registerStatus = "";
-    if (session?.code && session.code !== reservation.code) leaveRoom(session).catch(() => {});
+    if (session?.code && session.code !== reservation.code) queueRoomExit(session);
     session = reservation;
     saveSession(session);
     if (kind === "join") activateRoom();
@@ -293,6 +309,7 @@ async function register(kind) {
     registerStatus = error instanceof TypeError || error.name === "AbortError" ? "network" : error.message;
   } finally {
     if (attempt === registrationAttempt) {
+      registrationPending = null;
       busy = false;
       if (shown === "register") refreshRegister();
     }
@@ -360,13 +377,18 @@ function onFinish(final, duplicate, events) {
 }
 
 function showError(code) {
-  if (code === "kicked" && session && shown !== "game") {
-    registerStatus = "kicked";
-    goHome({ target: "register", leave: false });
-    return;
+  const key = code === "opponent_left" ? "opponentLeft" : code;
+  const roomClosed = ["kicked", "opponent_left", "expired", "credentials"].includes(code);
+  if (session && roomClosed) {
+    if (result && ["announcement", "score"].includes(shown)) {
+      session.returnUnavailable = true;
+    } else if (shown === "lobby") {
+      registerStatus = key;
+      goHome({ target: "register", leave: false });
+      return;
+    }
   }
   managePending = false;
-  const key = code === "opponent_left" ? "opponentLeft" : code;
   if (shown === "register") registerStatus = key;
   if (shown === "lobby") ownLobbyStatus = key;
   if (shown === "score") scoreStatus = key;
@@ -667,7 +689,7 @@ function start() {
     else showScreen(saved.screen === "game" ? "game" : "lobby");
     if (saved.screen !== "register") client.open(saved);
   } else if (invite) {
-    if (saved && ["register", "lobby"].includes(saved.screen)) leaveRoom(saved).catch(() => {});
+    if (saved && ["register", "lobby", "score", "announcement"].includes(saved.screen)) queueRoomExit(saved);
     saveSession(null);
     showScreen("register");
   }
@@ -677,4 +699,6 @@ setInterval(() => {
   updateLobbyClock();
   updateGameClock();
 }, 150);
+window.addEventListener("online", () => queueRoomExit());
 start();
+queueRoomExit();

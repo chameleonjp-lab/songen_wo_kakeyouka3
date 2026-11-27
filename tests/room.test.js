@@ -1,7 +1,7 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { RoomSession } from '../worker/room.js';
-import { VERSION, emptyInput, normalizeCode, parseMessage, parseRegistration } from '../game/protocol.js';
+import { VERSION, PAUSE_BUDGET_MS, emptyInput, normalizeCode, parseMessage, parseRegistration } from '../game/protocol.js';
 
 const profile = (hash, name = '') => ({ hash, name, faceId: 0, playerId: name ? hash : null });
 
@@ -97,4 +97,65 @@ test('retains both members when either returns from a four-digit room result', (
   assert.equal(room.returnToRoom(0, host.generation, matchId, 3003), true);
   assert.equal(room.connect('guest', matchId, 3004).historical, true);
   assert.equal(normalizeCode('００３８'), '0038');
+});
+
+function finishedShortRoom() {
+  const room = new RoomSession();
+  room.register('create', '0038', profile('owner'), 0);
+  room.register('join', '0038', profile('guest'), 0);
+  const host = room.connect('owner', null, 0);
+  const guest = room.connect('guest', null, 0);
+  room.setReady(0, host.generation, true, 0);
+  room.setReady(1, guest.generation, true, 0);
+  const matchId = '00000000-0000-4000-8000-000000000001';
+  assert.equal(room.start(matchId, 3000), true);
+  assert.equal(room.forfeit(0, host.generation, matchId, 3001), true);
+  return { room, host, guest, matchId };
+}
+
+test('allows the guest to spend time reading the result and be ready on the first attempt', () => {
+  const { room, host, guest, matchId } = finishedShortRoom();
+  room.returnToRoom(0, host.generation, matchId, 3100);
+  const now = 10_000;
+  room.heartbeat(0, host.generation, null, now);
+  assert.equal(room.returnToRoom(1, guest.generation, matchId, now), true);
+  room.setReady(0, host.generation, true, now);
+  room.setReady(1, guest.generation, true, now);
+  room.advancePresence(now + 1);
+  assert.equal(room.phase, 'countdown');
+});
+
+test('releases a score seat in either order and leaves newer rounds and old results intact', () => {
+  for (const hostReturnsFirst of [false, true]) {
+    const { room, host, matchId } = finishedShortRoom();
+    if (hostReturnsFirst) room.returnToRoom(0, host.generation, matchId, 3100);
+    assert.equal(room.leaveByHash('guest', 3200, matchId), 1);
+    assert.equal(room.connect('guest', matchId, 3201).historical, true);
+    if (!hostReturnsFirst) room.returnToRoom(0, host.generation, matchId, 3300);
+    assert.equal(room.register('join', '0038', profile('new'), 3400).seat, 1);
+    const guest = room.connect('new', null, 3400);
+    room.setReady(0, host.generation, true, 3400);
+    room.setReady(1, guest.generation, true, 3400);
+    const nextMatch = '00000000-0000-4000-8000-000000000002';
+    assert.equal(room.start(nextMatch, 6400), true);
+    assert.equal(room.leaveByHash('owner', 6401, matchId), null);
+    assert.equal(room.matchId, nextMatch);
+    assert.deepEqual(room.result(matchId).outcomeBySeat, ['loss', 'win']);
+  }
+});
+
+test('reusing a room number gives the next match the full pause budget', () => {
+  const { room, matchId } = finishedShortRoom();
+  room.data.pauseRemaining = 2000;
+  const now = room.result(matchId).expiresAt + 1;
+  room.prune(now);
+  room.register('create', '0038', profile('new-owner'), now);
+  room.register('join', '0038', profile('new-guest'), now);
+  const owner = room.connect('new-owner', null, now);
+  const guest = room.connect('new-guest', null, now);
+  room.setReady(0, owner.generation, true, now);
+  room.setReady(1, guest.generation, true, now);
+  assert.equal(room.start('00000000-0000-4000-8000-000000000002', now + 3000), true);
+  room.disconnect(1, guest.generation, now + 3100);
+  assert.equal(room.pauseDeadline, now + 3100 + PAUSE_BUDGET_MS);
 });
