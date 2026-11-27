@@ -11,7 +11,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "find game web worker tests -type f \\( -name '*.js' -o -name '*.mjs' \\) -exec sh -c 'for file do node --check \"$file\" || exit; done' sh {} + && node --check playwright.config.js",
+    "check": "find game web worker scripts tests -type f \\( -name '*.js' -o -name '*.mjs' \\) -exec sh -c 'for file do node --check \"$file\" || exit; done' sh {} + && node --check playwright.config.js",
     "test": "vitest run",
     "test:browser": "playwright test --project=webkit"
   },

@@ -5,6 +5,7 @@ workers_dev = true
 
 [vars]
 ACCEPT_NEW_ROOMS = "false"
+RANKINGS_PUBLIC = "false"
 ALLOWED_ORIGINS = "https://chameleonjp-lab.github.io"
 RANKING_SUPABASE_URL = "https://mlpnjgezrnhdxsxolyzj.supabase.co"
 
@@ -25,6 +26,7 @@ name = "songen3-online-preview"
 
 [env.preview.vars]
 ACCEPT_NEW_ROOMS = "true"
+RANKINGS_PUBLIC = "false"
 ALLOWED_ORIGINS = "http://127.0.0.1:5173,http://localhost:5173,https://chameleonjp-lab.github.io"
 RANKING_SUPABASE_URL = ""
 

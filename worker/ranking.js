@@ -1,4 +1,5 @@
 export const RANKING_PREFIX = 'ranking:';
+export const rankingsPublic = env => env.RANKINGS_PUBLIC === 'true';
 
 export function queueRankingEvent(event) {
   const order = event.kind === 'start' ? 0 : 1;
@@ -19,7 +20,7 @@ function isServerKey(key) {
 }
 
 function connection(env) {
-  if (!env.RANKING_SUPABASE_URL || !isServerKey(env.RANKING_API_KEY)) return null;
+  if (!rankingsPublic(env) || !env.RANKING_SUPABASE_URL || !isServerKey(env.RANKING_API_KEY)) return null;
   let url;
   try {
     url = new URL(env.RANKING_SUPABASE_URL);

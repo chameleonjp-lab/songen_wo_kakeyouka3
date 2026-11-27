@@ -13,7 +13,7 @@ const event = {
   finishReason: null,
   score: null,
 };
-const env = { RANKING_SUPABASE_URL: 'https://mlpnjgezrnhdxsxolyzj.supabase.co', RANKING_API_KEY: 'sb_secret_test' };
+const env = { RANKINGS_PUBLIC: 'true', RANKING_SUPABASE_URL: 'https://mlpnjgezrnhdxsxolyzj.supabase.co', RANKING_API_KEY: 'sb_secret_test' };
 
 function createStorage() {
   const records = new Map();
@@ -62,4 +62,17 @@ test('public keys cannot make the writer health check pass', async () => {
   const publ = { ...env, RANKING_API_KEY: 'sb_publishable_test' };
   assert.equal(await rankingReady(publ, sender), false);
   assert.deepEqual(await flushRankingEvents(createStorage(), publ, sender), { configured: false });
+});
+
+test('a ranking hold skips health probes and leaves already queued entries unsent', async () => {
+  const storage = createStorage();
+  const [key, item] = queueRankingEvent(event);
+  storage.records.set(key, item);
+  const held = { ...env, RANKINGS_PUBLIC: 'false' };
+  let requests = 0;
+  const sender = async () => { requests += 1; return new Response(null, { status: 204 }); };
+  assert.equal(await rankingReady(held, sender), false);
+  assert.deepEqual(await flushRankingEvents(storage, held, sender), { configured: false });
+  assert.equal(requests, 0);
+  assert.equal(storage.records.has(key), true);
 });

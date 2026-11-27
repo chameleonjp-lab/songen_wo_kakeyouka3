@@ -39,7 +39,7 @@ function breakdownRows(result, seat) {
   ];
 }
 
-export function showScore(result, seat, isHost) {
+export function showScore(result, seat, isHost, rankingsPublic) {
   $("#score-outcome").textContent = outcomeText(result, seat);
   $("#score-reason").textContent = reasonText(result);
   $("#score-reason").hidden = result.reason === "interrupted";
@@ -60,5 +60,7 @@ export function showScore(result, seat, isHost) {
       breakdown.append(row);
     }
   }
-  $("#ranking-status").textContent = result.rankingStatus === "pending" ? t("rankingPending") : "";
+  const rankingStatus = $("#ranking-status");
+  rankingStatus.hidden = !rankingsPublic || result.rankingStatus !== "pending";
+  rankingStatus.textContent = rankingStatus.hidden ? "" : t("rankingPending");
 }

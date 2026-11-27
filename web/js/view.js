@@ -1,5 +1,5 @@
-import { DEFAULT_STAGE, MATCH_DURATION_SEC, TICKS_PER_SECOND } from "../../game/rules.js";
-import { t } from "./i18n.js";
+import { DEFAULT_STAGE, MATCH_DURATION_SEC, TICKS_PER_SECOND, STAMINA_MAX } from "../../game/rules.js";
+import { language, t } from "./i18n.js";
 
 export const FACES = ["𓃾", "𓃿", "𓄀", "𓄁", "𓄃", "𓄇", "𓅿", "𓆀", "𓆁", "🌕", "🌝", "🔵", "😺", "🐶", "🐯", "🦊", "🐹", "🐻"];
 
@@ -43,11 +43,6 @@ export function renderPlayers(container, players, self, mode = "lobby") {
       ready.dataset.ready = "";
       meta.append(you, ready);
       card.append(face, name, meta);
-      if (mode === "game") {
-        const stamina = element("progress", "stamina");
-        stamina.max = 5;
-        card.append(stamina);
-      }
       container.append(card);
     }
   }
@@ -63,13 +58,6 @@ export function renderPlayers(container, players, self, mode = "lobby") {
     const ready = card.querySelector("[data-ready]");
     text(ready, t("ready"));
     ready.hidden = mode !== "lobby" || !player?.ready;
-    const meter = card.querySelector("progress");
-    if (meter) {
-      const value = player?.stamina ?? 5;
-      meter.value = value;
-      meter.setAttribute("aria-label", t("stamina"));
-      meter.title = `${t("stamina")} ${value.toFixed(1)}/5`;
-    }
   }
 }
 
@@ -220,4 +208,15 @@ export function createBoard(container, { final = false } = {}) {
 
 export function timeLeft(snapshot) {
   return Math.max(0, Math.ceil(MATCH_DURATION_SEC - (snapshot?.tick ?? 0) / TICKS_PER_SECOND));
+}
+
+export function renderHud(snapshot, seat) {
+  const score = snapshot?.statsBySeat?.[seat]?.score ?? 0;
+  const stamina = snapshot?.players?.[seat]?.stamina ?? STAMINA_MAX;
+  const full = Math.floor(stamina);
+  const partial = stamina > full ? "◧" : "";
+  text($("#battle-time"), String(timeLeft(snapshot)));
+  text($("#battle-score"), score.toLocaleString(language));
+  text($("#stamina-value"), stamina.toFixed(1));
+  text($("#stamina-bar"), "■".repeat(full) + partial + "□".repeat(STAMINA_MAX - full - partial.length));
 }
