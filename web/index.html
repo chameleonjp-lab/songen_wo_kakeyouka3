@@ -47,6 +47,7 @@
               <li data-i18n="m019"></li>
             </ul>
           </details>
+          <button id="open-keyboard-settings" type="button" aria-haspopup="dialog" data-i18n="keyboardTitle" hidden>設定</button>
           <a id="home-share" class="button" target="_blank" rel="noopener noreferrer" data-i18n="share">Xにシェア</a>
           <a id="home-ranking" class="button ranking" target="_blank" rel="noopener noreferrer" data-i18n="m009">ランキング</a>
         </div>
@@ -178,6 +179,18 @@
         </div>
       </div>
     </section>
+
+    <dialog id="keyboard-dialog" aria-labelledby="keyboard-title">
+      <div class="stack">
+        <h2 id="keyboard-title" data-i18n="keyboardTitle">設定</h2>
+        <p class="muted" data-i18n="keyboardHelp">変更する操作を選び、新しいキーを押してください。使用中のキーは入れ替わります。</p>
+        <div id="keyboard-actions" class="stack"></div>
+        <p id="keyboard-waiting" class="status" role="status" data-i18n="keyboardWaiting" hidden>新しいキーを押してください。</p>
+        <form method="dialog" class="stack">
+          <button type="submit" data-i18n="m020">閉じる</button>
+        </form>
+      </div>
+    </dialog>
 
     <dialog id="forfeit-dialog" aria-labelledby="forfeit-title">
       <div class="stack">

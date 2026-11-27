@@ -18,7 +18,8 @@ async function hostRoom(page, capture) {
   await page.goto("./");
   await page.locator("#language").selectOption("ja");
   const home = view(page, "home");
-  await expect(home.locator("#home-actions > *")).toHaveText(["ゲームの準備", /ルール説明/, "Xにシェア", "ランキング"]);
+  await expect(home.locator("#home-actions > :visible")).toHaveText(["ゲームの準備", /ルール説明/, "Xにシェア", "ランキング"]);
+  await expect(home.locator("#open-keyboard-settings")).toBeHidden();
   await expect(home.locator(".ranking")).toBeVisible();
   await expect(home.locator(".ranking")).toHaveAttribute("href", /ranking\.html\?game=songen_wo_kakeyouka3_online$/);
   await expect(home.locator("#home-title")).toHaveText("尊厳を 賭けようか3", { useInnerText: true });
@@ -378,6 +379,65 @@ test("both room roles can reload after a connection failure and keep their seat"
     } finally {
       await context.close();
     }
+  }
+});
+
+test("desktop keyboard settings save immediately and control the next match", async ({ browser, baseURL }, testInfo) => {
+  const context = await browser.newContext({ baseURL, locale: "ja-JP", viewport: { width: 1024, height: 768 } });
+  try {
+    const page = await context.newPage();
+    await page.goto("./");
+    const settings = page.getByRole("button", { name: "設定", exact: true });
+    await expect(page.locator("#rules + #open-keyboard-settings")).toBeVisible();
+    await settings.click();
+    const dialog = page.getByRole("dialog", { name: "設定" });
+    const labels = dialog.locator("kbd");
+    await expect(labels).toHaveText(["↑", "↓", "←", "→", "W", "D"]);
+    const choose = async (action, key) => {
+      const row = dialog.locator(`[data-binding="${action}"]`);
+      await row.click();
+      await page.keyboard.press(key);
+      await expect(row).toHaveAttribute("aria-pressed", "false");
+    };
+    await choose("attackPressed", "d");
+    await expect(labels).toHaveText(["↑", "↓", "←", "→", "D", "W"]);
+    await choose("attackPressed", "f");
+    await choose("guardPressed", "g");
+    await choose("jumpPressed", "j");
+    await page.reload();
+    await settings.click();
+    await expect(labels).toHaveText(["J", "↓", "←", "→", "F", "G"]);
+    await page.screenshot({ path: testInfo.outputPath("screen-pc-keyboard.png"), scale: "css" });
+    await dialog.getByRole("button", { name: "閉じる" }).click();
+
+    const { createMatch, toSnapshot } = await import("../../game/rules.js");
+    const snapshot = toSnapshot(createMatch({ matchId: sampleMatch, players: samplePlayers }));
+    const inputs = [];
+    await page.routeWebSocket(`**/v1/rooms/${sampleRoom}/socket`, socket => {
+      socket.onMessage(raw => {
+        const packet = JSON.parse(raw);
+        if (packet.type === "input") inputs.push(packet.input);
+        if (packet.type !== "auth") return;
+        socket.send(JSON.stringify(roomPacket("playing")));
+        socket.send(JSON.stringify({ type: "snapshot", matchId: sampleMatch, phase: "playing", snapshot, events: [], acks: [0, 0] }));
+      });
+    });
+    await resumeGame(page);
+    await page.reload();
+    await expect(page.locator('[data-control="attackPressed"]')).toBeEnabled();
+    await page.keyboard.press("w");
+    await page.keyboard.press("d");
+    await page.keyboard.press("f");
+    await page.keyboard.press("g");
+    await page.keyboard.press("j");
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(() => inputs.length).toBe(5);
+    expect(inputs.slice(0, 4).map(input => Object.keys(input).filter(action => input[action]))).toEqual([
+      ["attackPressed"], ["guardPressed"], ["jumpPressed"], ["right"]
+    ]);
+    expect(Object.values(inputs[4]).some(Boolean)).toBe(false);
+  } finally {
+    await context.close();
   }
 });
 

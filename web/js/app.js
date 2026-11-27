@@ -3,6 +3,7 @@ import { normalizeCode, isShortCode, emptyInput } from "../../game/protocol.js";
 import { applyLanguage, language, languages, setLanguage, t } from "./i18n.js";
 import { clearReservation, createMatchClient, leaveRoom, loadSession, readStorage, registerRoom, saveSession, writeStorage } from "./match-client.js";
 import { $, FACES, createBoard, createPhoto, renderHud, renderPlayers, timeLeft } from "./view.js";
+import { createKeyboardSettings } from "./keyboard.js";
 import { dignityText, formatScore, outcomeText, showAnnouncement, showScore } from "./result-view.js";
 
 const publicUrl = "https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/";
@@ -17,11 +18,7 @@ const screens = [...document.querySelectorAll("[data-screen]")];
 const gameBoard = createBoard($("#game-board"));
 const finalBoard = createPhoto($("#final-board"));
 const controlButtons = [...document.querySelectorAll("[data-control]")];
-const keyControls = {
-  ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right",
-  ArrowUp: "jumpPressed", KeyW: "jumpPressed", ArrowDown: "crouch", KeyS: "crouch",
-  KeyZ: "attackPressed", KeyX: "guardPressed"
-};
+const { controlFor } = createKeyboardSettings();
 const heldControls = new Map();
 const holdInputs = new Set(["left", "right", "crouch"]);
 let shown = "home";
@@ -450,7 +447,7 @@ for (const event of ["pointerup", "pointercancel"]) {
 }
 window.addEventListener("blur", clearControls);
 window.addEventListener("keydown", event => {
-  const control = keyControls[event.code];
+  const control = controlFor(event.code);
   if (shown !== "game" || !control || $("#forfeit-dialog").open || event.metaKey || event.ctrlKey || event.altKey) return;
   event.preventDefault();
   if (event.repeat) return;
