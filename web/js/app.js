@@ -229,7 +229,6 @@ function refreshDynamic() {
 function refreshLanguage() {
   $("#language").value = language;
   refreshAudioText();
-  $("#home-share").href = shareLink([t("title"), t("intro"), publicUrl].join("\n"));
   refreshDynamic();
   if (shown === "game") gameBoard.render(lastSnapshot);
 }
@@ -584,6 +583,10 @@ $("#copy-room").addEventListener("click", async () => {
   refreshRegister();
 });
 $("#invite-code").addEventListener("click", event => event.currentTarget.select());
+$("#home-share").addEventListener("click", () => {
+  const text = [t("title"), t("intro"), publicUrl].join("\n");
+  window.open(shareLink(text), "_blank", "noopener,noreferrer");
+});
 $("#invite-share").addEventListener("click", () => {
   if (!session?.code || !ownsRoom()) return;
   const invite = new URL(publicUrl);

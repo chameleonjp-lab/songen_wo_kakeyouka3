@@ -6,6 +6,11 @@ const part = (page, board, seat, name) => page.locator(`#${board} .fighter[data-
 
 const composer = /^https:\/\/twitter\.com\/intent\/tweet\?/;
 
+async function expectShareColors(button) {
+  await expect(button).toHaveCSS("background-color", "rgb(0, 0, 0)");
+  await expect(button).toHaveCSS("color", "rgb(255, 255, 255)");
+}
+
 async function sharedText(page, button) {
   await page.route(composer, route => route.fulfill({ contentType: "text/html", body: "<h1>X share</h1>" }), { times: 1 });
   await Promise.all([page.waitForURL(composer), button.click()]);
@@ -31,7 +36,7 @@ async function hostRoom(page, capture, { enterLobby = true } = {}) {
   await page.locator("#language").selectOption("ja");
   const home = view(page, "home");
   await expect(home.locator("#home-actions > :visible")).toHaveText([
-    "ゲームの準備(オンライン対戦)", /ルール説明/, "Xにシェア", "ランキング", "CPUと戦う", "CPUと連続試合"
+    "ゲームの準備(オンライン対戦)", /ルール説明/, "ランキング", "Xにシェア", "CPUと戦う", "CPUと連続試合"
   ]);
   await expect(home.locator("[data-i18n='intro']")).toHaveText("尊厳を賭けるのに距離なんて関係ない！");
   await expect(home.locator("#home-cpu")).toHaveAttribute("href", "https://chameleonjp-lab.github.io/songen_wo_kakeyouka/");
@@ -196,7 +201,9 @@ test("two independent players can play, reload, keep the final board, and rematc
     await expect(host.locator("#score-breakdown > div")).toHaveCount(9);
     await expect(host.locator("#ranking-status")).toBeHidden();
     await expect(host.locator("#score-reason")).toHaveText("Gastの尊厳を少し破壊した");
-    const hostShare = await sharedText(host, host.getByRole("button", { name: "Xに結果をシェア" }));
+    const scoreShare = host.getByRole("button", { name: "Xに結果をシェア" });
+    await expectShareColors(scoreShare);
+    const hostShare = await sharedText(host, scoreShare);
     await expect(view(host, "score")).toBeVisible();
     expect(hostShare).toContain(`勝利・スコア ${await host.locator("#score-value").textContent()}`);
     expect(hostShare.split("\n")).toContain("Gastの尊厳を少し破壊した");
@@ -367,6 +374,23 @@ test("leaving a score releases the seat and kicking a seat preserves the other s
   }
 });
 
+test("the home share button stays visible below the ranking and opens the X composer", async ({ page, context }) => {
+  await page.setViewportSize({ width: 402, height: 700 });
+  await page.goto("./");
+  await page.locator("#language").selectOption("ja");
+  await page.addStyleTag({ content: 'a[href^="https://twitter.com/intent/"] { display: none !important; }' });
+  const shareButton = page.getByRole("button", { name: "Xにシェア", exact: true });
+  await expect(page.locator("#home-ranking + #home-share")).toBeInViewport();
+  await expectShareColors(shareButton);
+  await context.route(composer, route => route.fulfill({ contentType: "text/html", body: "<h1>X share</h1>" }));
+  const [tab] = await Promise.all([context.waitForEvent("page"), shareButton.click()]);
+  await tab.waitForURL(composer);
+  expect(new URL(tab.url()).searchParams.get("text").split("\n")).toEqual([
+    "尊厳を賭けようか3", "尊厳を賭けるのに距離なんて関係ない！", publicUrl
+  ]);
+  await expect(view(page, "home")).toBeVisible();
+});
+
 test("manual invite is selectable when clipboard fails and all original languages load", async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", {
@@ -401,6 +425,7 @@ test("manual invite is selectable when clipboard fails and all original language
   await page.addStyleTag({ content: 'a[href^="https://twitter.com/intent/"] { display: none !important; }' });
   const shareButton = page.getByRole("button", { name: "Xでシェア" });
   await expect(shareButton).toBeVisible();
+  await expectShareColors(shareButton);
   const copy = await page.locator("#copy-room").boundingBox();
   const share = await shareButton.boundingBox();
   expect(share.x).toBeGreaterThan(copy.x + copy.width);
