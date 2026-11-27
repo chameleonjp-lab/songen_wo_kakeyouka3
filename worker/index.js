@@ -2,9 +2,12 @@ import {
   AUTH_TIMEOUT_MS,
   CODE_ALPHABET,
   MAX_PACKET_BYTES,
+  INVITE_LIFETIME_MS,
+  ROOM_CODE_DIGITS,
   VERSION,
   isKey,
   normalizeCode,
+  isShortCode,
   parseMessage,
   parseRegistration,
 } from '../game/protocol.js';
@@ -37,11 +40,10 @@ async function digest(namespace, key) {
   return encodeHex(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(`${namespace}:${key}`))));
 }
 
-async function deriveCode(secret, seatKey) {
+async function signRoomKey(secret, seatKey) {
   const key = await crypto.subtle.importKey('raw', encoder.encode(secret),
     { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const signed = new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(seatKey)));
-  return [...signed.slice(0, 12)].map(value => CODE_ALPHABET[value & 31]).join('');
+  return new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(seatKey)));
 }
 
 async function readJSON(request) {
@@ -89,7 +91,7 @@ export default {
       const acceptingRooms = canCreate(env);
       const published = rankingsPublic(env);
       return reply({
-        version: VERSION, acceptingRooms, rankingsPublic: published,
+        version: VERSION, roomCodeDigits: ROOM_CODE_DIGITS, acceptingRooms, rankingsPublic: published,
         rankingReady: published && await probeRanking(env),
       });
     }
@@ -132,13 +134,23 @@ export default {
     }
     const parsed = parseRegistration(body);
     if (parsed.error) return reject(parsed.error, cors);
-    const roomCode = create ? await deriveCode(env.ROOM_CODE_SECRET, parsed.seatKey) : code;
+    const signed = create ? await signRoomKey(env.ROOM_CODE_SECRET, parsed.seatKey) : null;
+    const roomCode = signed ? [...signed.slice(0, 12)].map(value => CODE_ALPHABET[value & 31]).join('') : code;
     const profile = {
       hash: await digest('seat', parsed.seatKey),
       name: parsed.name,
       faceId: parsed.faceId,
       playerId: parsed.name ? await digest('ranking', parsed.rankingKey) : null,
     };
+    if (create && parsed.roomCodeDigits === ROOM_CODE_DIGITS) {
+      const seed = new DataView(signed.buffer);
+      const allocator = env.ENTRY_LIMIT.getByName('room-owner:' + profile.hash);
+      const response = await allocator.fetch('https://limit.internal/allocate', {
+        method: 'POST',
+        body: JSON.stringify({ profile, start: seed.getUint16(0), stepSeed: seed.getUint16(2) }),
+      });
+      return reply(await response.json(), response.status, cors);
+    }
     const response = await env.MATCH_ROOMS.getByName(roomCode).fetch(
       `https://room.internal/${create ? 'create' : 'join'}`,
       { method: 'POST', body: JSON.stringify({ code: roomCode, profile }) },
@@ -148,12 +160,20 @@ export default {
 };
 
 export class EntryLimit {
-  constructor(ctx) {
+  constructor(ctx, env) {
     this.ctx = ctx;
+    this.env = env;
+    this.allocation = Promise.resolve();
   }
 
   async fetch(request) {
     const category = new URL(request.url).pathname;
+    if (category === '/allocate') {
+      const reservation = await request.json();
+      const result = this.allocation.then(() => this.allocate(reservation));
+      this.allocation = result.catch(() => {});
+      return result;
+    }
     const limit = category === '/socket' ? 100 : 24;
     const now = Date.now();
     const handle = async transaction => {
@@ -167,6 +187,26 @@ export class EntryLimit {
     };
     const allowed = await this.ctx.storage.transaction(handle);
     return reply({}, allowed ? 200 : 429);
+  }
+
+  async allocate({ profile, start, stepSeed }) {
+    const codeCount = 10 ** ROOM_CODE_DIGITS;
+    const odd = (stepSeed % (codeCount / 2)) * 2 + 1;
+    const stride = odd % 5 === 0 ? odd + 2 : odd;
+    const probeKey = 'roomProbe';
+    let probe = await this.ctx.storage.get(probeKey) ?? 0;
+    await this.ctx.storage.setAlarm(Date.now() + 2 * INVITE_LIFETIME_MS);
+    // Save each candidate before the network call so a lost success can be retried.
+    for (let attempt = 0; attempt < 24; attempt++, probe++) {
+      const code = String((start + (probe % codeCount) * stride) % codeCount).padStart(ROOM_CODE_DIGITS, '0');
+      await this.ctx.storage.put(probeKey, probe);
+      const response = await this.env.MATCH_ROOMS.getByName(code).fetch('https://room.internal/create', {
+        method: 'POST', body: JSON.stringify({ code, profile }),
+      });
+      if (response.status !== 409) return response;
+    }
+    await this.ctx.storage.put(probeKey, probe);
+    return reject('unavailable');
   }
 
   async alarm() {
@@ -235,12 +275,17 @@ export class MatchRoom {
       await this.maintain(now);
       if (action === 'leave') {
         const before = this.session.phase;
+        const memberHashes = this.session.data.members.map(member => member?.hash);
         const seat = this.session.leaveByHash(hash, now);
         if (seat === null) return reject('credentials');
-        if (seat === 0) this.closeCurrent('opponent_left', 1);
-        this.closeCurrent('disconnected', seat);
+        if (this.session.phase === 'expired') this.closeCurrent('opponent_left', 1 - seat, memberHashes[1 - seat]);
+        this.closeCurrent('disconnected', seat, hash);
         await this.transition(before, now);
         return reply({ left: true });
+      }
+      if (action === 'create' && isShortCode(code) && this.session.phase === 'finished') {
+        this.session.prune(now);
+        if (this.session.phase === 'expired') await this.transition('finished', now);
       }
       const result = this.session.register(action, code, profile, now);
       if (result.error) return reject(result.error);
@@ -269,8 +314,8 @@ export class MatchRoom {
         this.send(ws, { type: 'error', code: message.error ?? 'invalid' });
         return;
       }
-      const { seat, generation, historical } = attachment.profile;
-      if (historical || generation !== message.generation) return;
+      const { seat, generation, historical } = this.currentProfile(attachment);
+      if (historical || generation !== message.generation || !this.session.isCurrent(seat, generation)) return;
       if (message.type === 'heartbeat') {
         this.session.heartbeat(seat, generation, message.matchId, now);
         await this.maintain(now);
@@ -286,12 +331,25 @@ export class MatchRoom {
       const before = this.session.phase;
       switch (message.type) {
         case 'ready':
-          changed = this.session.setReady(seat, generation, message.ready, now);
+          changed = this.session.setReady(seat, generation, message.ready, now, message.layout);
           break;
-        case 'leave':
+        case 'leave': {
+          const guestHash = this.session.data.members[1 - seat]?.hash;
           changed = this.session.leave(seat, generation, now);
-          if (changed && seat === 0) this.closeCurrent('opponent_left', 1);
+          if (changed && this.session.phase === 'expired') this.closeCurrent('opponent_left', 1 - seat, guestHash);
           break;
+        }
+        case 'swapSeats':
+          changed = this.session.swapSeats(seat, generation, message.layout);
+          if (!changed) this.send(ws, { type: 'error', code: 'conflict' });
+          break;
+        case 'kickGuest': {
+          const removed = this.session.kickGuest(seat, generation, message.layout, now);
+          changed = Boolean(removed);
+          if (removed) this.closeCurrent('kicked', 1 - seat, removed);
+          else this.send(ws, { type: 'error', code: 'conflict' });
+          break;
+        }
         case 'suspend':
           if (message.matchId === this.session.matchId) {
             changed = this.session.disconnect(seat, generation, now);
@@ -306,8 +364,8 @@ export class MatchRoom {
           break;
         case 'returnToRoom':
           changed = this.session.returnToRoom(seat, generation, message.matchId, now);
-          if (changed) this.detachGuest(message.matchId);
-          else this.send(ws, { type: 'error', code: 'expired' });
+          if (!changed) this.send(ws, { type: 'error', code: 'expired' });
+          else if (!isShortCode(this.session.data.code)) this.detachGuest(message.matchId);
           break;
       }
       if (changed) await this.transition(before, now);
@@ -335,14 +393,14 @@ export class MatchRoom {
       this.drop(ws, profile.error);
       return;
     }
-    ws.serializeAttachment({ profile, historicalMatchId: profile.historical ? message.matchId : null });
+    ws.serializeAttachment({ profile: { ...profile, hash }, historicalMatchId: profile.historical ? message.matchId : null });
     if (profile.historical) {
       this.send(ws, { ...this.session.result(message.matchId), seat: profile.seat });
       return;
     }
     for (const other of this.ctx.getWebSockets()) {
       if (other !== ws) {
-        const prior = other.deserializeAttachment()?.profile;
+        const prior = this.currentProfile(other.deserializeAttachment());
         if (prior?.seat === profile.seat && !prior.historical) this.drop(other, 'credentials');
       }
     }
@@ -379,7 +437,7 @@ export class MatchRoom {
 
   async onDisconnect(ws, now) {
     const attachment = ws.deserializeAttachment();
-    const profile = attachment?.profile;
+    const profile = this.currentProfile(attachment);
     if (!profile || profile.historical) return;
     const before = this.session.phase;
     if (this.session.disconnect(profile.seat, profile.generation, now)) {
@@ -568,17 +626,28 @@ export class MatchRoom {
     }
   }
 
-  closeCurrent(code = 'expired', seat = null) {
+  currentProfile(attachment) {
+    const profile = attachment?.profile;
+    if (profile?.hash && !profile.historical) {
+      return { ...profile, seat: this.session.seatFor(profile.hash) };
+    }
+    return profile;
+  }
+
+  closeCurrent(code = 'expired', seat = null, removedHash = null) {
     for (const ws of this.ctx.getWebSockets()) {
-      const { profile, closed } = ws.deserializeAttachment() ?? {};
-      if (!closed && !profile?.historical && (seat === null || profile?.seat === seat)) this.drop(ws, code);
+      const attachment = ws.deserializeAttachment();
+      const profile = this.currentProfile(attachment);
+      if (!attachment?.closed && !profile?.historical &&
+          (seat === null || profile?.seat === seat || (removedHash && profile?.hash === removedHash))) this.drop(ws, code);
     }
   }
 
   broadcastRoom() {
     for (const ws of this.ctx.getWebSockets()) {
-      const { profile, closed } = ws.deserializeAttachment() ?? {};
-      if (profile && !profile.historical && !closed) {
+      const attachment = ws.deserializeAttachment();
+      const profile = this.currentProfile(attachment);
+      if (profile && profile.seat >= 0 && !profile.historical && !attachment.closed) {
         this.send(ws, { ...this.session.roomPacket(profile.seat, profile.generation), serverNow: Date.now() });
       }
     }

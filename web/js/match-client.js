@@ -1,6 +1,6 @@
 import {
-  AUTH_TIMEOUT_MS, HEARTBEAT_TIMEOUT_MS, PAUSE_BUDGET_MS, RESULT_LIFETIME_MS, VERSION,
-  isKey, normalizeCode
+  AUTH_TIMEOUT_MS, HEARTBEAT_TIMEOUT_MS, PAUSE_BUDGET_MS, RESULT_LIFETIME_MS, ROOM_CODE_DIGITS, VERSION,
+  isKey, isShortCode, normalizeCode
 } from "../../game/protocol.js";
 
 const SESSION_STORAGE_KEY = "songen3_active_room";
@@ -9,7 +9,7 @@ const RANKING_STORAGE_KEY = "songen3_ranking_key";
 const heartbeatInterval = 1000;
 const lobbyReconnectMs = 15000;
 const matchPhases = new Set(["playing", "paused"]);
-const fatalErrors = new Set(["expired", "credentials", "version", "opponent_left"]);
+const fatalErrors = new Set(["expired", "credentials", "version", "opponent_left", "kicked"]);
 const endpoint = import.meta.env.VITE_MATCH_SERVER_URL?.trim() ||
   (import.meta.env.DEV ? "http://127.0.0.1:8787" : "");
 
@@ -54,7 +54,7 @@ function registrationKey(route) {
   return lastReservation.seatKey;
 }
 
-function clearReservation() {
+export function clearReservation() {
   lastReservation = null;
   saveSessionObject(RESERVATION_STORAGE_KEY, null);
 }
@@ -69,6 +69,7 @@ export async function registerRoom(kind, { code, name, faceId }) {
   const url = serverUrl(route);
   const seatKey = registrationKey(route);
   const body = { seatKey, name, faceId, version: VERSION };
+  if (kind === "create") body.roomCodeDigits = ROOM_CODE_DIGITS;
   if (name) body.rankingKey = getRankingKey();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
@@ -85,20 +86,27 @@ export async function registerRoom(kind, { code, name, faceId }) {
       if (reason === "conflict" || reason === "expired") clearReservation();
       throw new Error(reason);
     }
+    if (kind === "create" && !isShortCode(room.code)) {
+      leaveRoom({ ...room, seatKey }).catch(() => {});
+      clearReservation();
+      throw new Error("version");
+    }
     clearReservation();
-    return { ...room, seatKey, matchId: null, screen: kind === "create" ? "register" : "lobby" };
+    return { ...room, owner: room.owner ?? kind === "create", seatKey, matchId: null, screen: kind === "create" ? "register" : "lobby" };
   } finally {
     clearTimeout(timeout);
   }
 }
 
-export function leaveRoom(reservation) {
+export async function leaveRoom(reservation) {
   if (!endpoint || !reservation) return;
   const url = serverUrl(`/v1/rooms/${reservation.code}/leave`);
   const body = JSON.stringify({ seatKey: reservation.seatKey, version: VERSION });
-  void fetch(url, {
-    method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true
-  }).catch(() => {});
+  const response = await fetch(url, {
+    method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true,
+    signal: AbortSignal.timeout(8000)
+  });
+  if (!response.ok) throw new Error("network");
 }
 
 export function loadSession() {
@@ -196,7 +204,7 @@ export function createMatchClient({ onRoom, onSnapshot, onFinish, onConnection, 
   }
 
   function handleRoom(packet) {
-    if (packet.seat !== session.seat || packet.code !== session.code || !Number.isSafeInteger(packet.generation)) return;
+    if (![0, 1].includes(packet.seat) || packet.code !== session.code || !Number.isSafeInteger(packet.generation)) return;
     if (generation && generation !== packet.generation) return;
     if (!generation) {
       clearTimeout(authenticationTimer);
@@ -220,6 +228,8 @@ export function createMatchClient({ onRoom, onSnapshot, onFinish, onConnection, 
       returned = false;
       returnSentGeneration = 0;
     }
+    session.seat = packet.seat;
+    session.owner = packet.owner ?? session.owner ?? packet.seat === 0;
     if (packet.expiresAt) session.expiresAt = packet.expiresAt;
     if (packet.phase === "expired") {
       if (!finished) fail("expired");
@@ -404,7 +414,8 @@ export function createMatchClient({ onRoom, onSnapshot, onFinish, onConnection, 
       updateConnection("idle");
       return sent;
     },
-    ready() { return send("ready", { ready: true }); },
+    ready() { return send("ready", { ready: true, layout: room?.layout }); },
+    manage(type) { return send(type, { layout: room?.layout }); },
     get canPlay() { return connection === "connected" && freshSnapshot && room?.phase === "playing"; },
     get connected() { return connection === "connected"; },
     input(input) {

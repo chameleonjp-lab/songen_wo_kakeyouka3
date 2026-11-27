@@ -61,15 +61,16 @@ describe('GitHub Pages output', () => {
   it('serves the published social card and omits server files and old 3D assets', async () => {
     const page = await fetch(origin + projectBase);
     const html = await page.text();
-    const shareImage = projectBase + 'assets/social-card.png';
+    const shareImage = projectBase + 'assets/social-duel-20261127.jpg';
     expect(html).toContain(`<meta property="og:image" content="https://chameleonjp-lab.github.io${shareImage}">`);
+    expect(html).toContain(`<meta name="twitter:image" content="https://chameleonjp-lab.github.io${shareImage}">`);
 
     const response = await fetch(origin + shareImage);
     expect(response.status).toBe(200);
-    expect(response.headers.get('content-type')).toContain('image/png');
-    const png = Buffer.from(await response.arrayBuffer());
-    expect(png.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
-    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1200, 630]);
+    expect(response.headers.get('content-type')).toContain('image/jpeg');
+    const jpeg = Buffer.from(await response.arrayBuffer());
+    expect(jpeg.subarray(0, 3).toString('hex')).toBe('ffd8ff');
+    expect(jpeg.subarray(-2).toString('hex')).toBe('ffd9');
 
     const files = await readdir(output, { recursive: true });
     const privateFiles = /(^|\/)(worker|server|wrangler\.toml|\.env[^/]*|\.dev\.vars[^/]*)(\/|$)|\.glb$/;

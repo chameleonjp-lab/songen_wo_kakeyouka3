@@ -9,7 +9,8 @@ async function hostRoom(page, capture) {
   await page.locator("#language").selectOption("ja");
   const home = view(page, "home");
   await expect(home.locator("#home-actions > *")).toHaveText(["ゲームの準備", /ルール説明/, "Xにシェア", "ランキング"]);
-  await expect(home.locator(".ranking")).toBeHidden();
+  await expect(home.locator(".ranking")).toBeVisible();
+  await expect(home.locator(".ranking")).toHaveAttribute("href", /ranking\.html\?game=songen_wo_kakeyouka3_online$/);
   await expect(home.locator("#home-title")).toHaveText("尊厳を 賭けようか3", { useInnerText: true });
   const languageBox = await home.locator("#language").boundingBox();
   const cardBox = await home.locator(".home-panel").boundingBox();
@@ -32,12 +33,11 @@ async function hostRoom(page, capture) {
   await capture(page, "02-registration");
   await page.getByRole("button", { name: "ルームを立てる" }).click();
   const input = page.locator("#invite-code");
-  await expect(input).toHaveValue(/^[0-9A-Z]{12}$/);
+  await expect(input).toHaveValue(/^[0-9]{4}$/);
   const code = await input.inputValue();
   const href = await page.locator("#invite-share").getAttribute("href");
   const share = new URL(href).searchParams.get("text");
-  expect(share).toContain(`${publicUrl}#room=${code}`);
-  expect(share).toContain(`ルームID ${code}`);
+  expect(share.split("\n")).toEqual(["私と尊厳を賭けようよ！", `ルームID：${code}`, "#尊厳を賭けようか3", `${publicUrl}#room=${code}`]);
   await page.getByRole("button", { name: "待機室へ" }).click();
   await expect(page.locator("#lobby-status")).toHaveText("相手を待っています");
   return code;
@@ -126,6 +126,9 @@ test("two independent players can play, reload, keep the final board, and rematc
     await guest.locator("#confirm-forfeit").click();
     await expect(view(host, "announcement")).toBeVisible();
     await expect(view(guest, "announcement")).toBeVisible();
+    await expect(host.locator("#show-score")).toBeDisabled();
+    await expect(guest.locator("#show-score")).toBeDisabled();
+    await expect(host.locator("#show-score")).toHaveCSS("background-color", "rgb(67, 69, 76)");
     await expect(host.locator("#announcement-outcome")).toHaveText("勝利");
     await expect(host.locator("#announcement-reason")).toHaveText("降参で決着");
     await expect(part(host, "final-board", 1, "leftArm")).toHaveAttribute("data-broken", "true");
@@ -143,12 +146,16 @@ test("two independent players can play, reload, keep the final board, and rematc
     await expect(guest.locator("#final-board")).toHaveAttribute("data-tick", tick);
     await expect(guest.locator("#show-score")).toBeInViewport();
 
+    const photoBox = await host.locator("#final-board").boundingBox();
+    const fighterBox = await host.locator("#final-board .fighter").first().boundingBox();
+    expect(fighterBox.width).toBeGreaterThan(125);
+    expect(Math.abs((fighterBox.y + fighterBox.height / 2) - (photoBox.y + photoBox.height / 2))).toBeLessThan(6);
     await capture(host, "05-announcement");
     await host.locator("#show-score").click();
     await guest.locator("#show-score").click();
     await expect(host.locator("#score-actions > :visible")).toHaveText(["ルームに戻る", "Xにシェア", "ホーム"]);
-    await expect(guest.locator("#score-actions > :visible")).toHaveCount(2);
-    await expect(guest.locator("#return-to-room")).toBeHidden();
+    await expect(guest.locator("#score-actions > :visible")).toHaveCount(3);
+    await expect(guest.locator("#return-to-room")).toBeVisible();
     await expect(host.locator("#score-breakdown > div")).toHaveCount(9);
     await expect(host.locator("#score-actions .ranking")).toBeHidden();
     await expect(host.locator("#ranking-status")).toBeHidden();
@@ -163,16 +170,54 @@ test("two independent players can play, reload, keep the final board, and rematc
     await expect(view(guest, "score")).toBeVisible();
     await guest.reload();
     await expect(view(guest, "score")).toBeVisible();
-    await guest.locator("#score-actions [data-home]").click();
-    await guest.locator("#prepare").click();
-    await guest.locator("#join-code").fill(code);
-    await guest.locator("#join-button").click();
+    await guest.locator("#return-to-room").click();
     await expect(view(guest, "lobby")).toBeVisible();
     await host.locator("#ready").click();
     await guest.locator("#ready").click();
     await expect(view(host, "game")).toBeVisible();
     await expect(host.locator("#game-board")).not.toHaveAttribute("data-match-id", matchId);
     await expect(host.locator("#game-board")).toHaveAttribute("data-match-id", /^[0-9a-f-]{36}$/);
+  } finally {
+    await guestContext.close();
+  }
+});
+
+test("only the owner can swap or remove a guest, and the guest can clear a remembered ID", async ({ page: host, browser, baseURL }) => {
+  const code = await hostRoom(host, async () => {});
+  const guestContext = await browser.newContext({ baseURL, locale: "ja-JP", viewport: { width: 402, height: 700 }, isMobile: true });
+  try {
+    const guest = await guestContext.newPage();
+    await guest.goto("./");
+    await guest.locator("#prepare").click();
+    await guest.locator("#player-name").fill("花子");
+    await guest.locator("#join-code").fill(code);
+    await guest.locator("#join-button").click();
+    await expect(view(guest, "lobby")).toBeVisible();
+    await expect(guest.locator("#owner-actions")).toBeHidden();
+    await guest.locator("#ready").click();
+    await expect(host.locator("#lobby-players [data-seat='1'] [data-ready]")).toBeVisible();
+
+    await host.locator("#swap-seats").click();
+    await expect(host.locator("#lobby-players [data-local=true]")).toHaveAttribute("data-seat", "1");
+    await expect(guest.locator("#lobby-players [data-local=true]")).toHaveAttribute("data-seat", "0");
+    await expect(guest.locator("#ready")).toBeEnabled();
+    await host.locator("#kick-guest").click();
+    await expect(view(guest, "register")).toBeVisible();
+    await expect(guest.locator("#register-status")).toHaveText(/退出しました/);
+    await expect(guest.locator("#join-code")).toHaveValue(code);
+    await expect(host.locator("#lobby-players [data-seat='0']")).toHaveAttribute("data-present", "false");
+
+    await guest.locator("#join-button").click();
+    await expect(guest.locator("#lobby-players [data-local=true]")).toHaveAttribute("data-seat", "0");
+    await guest.locator("#leave-lobby").click();
+    await expect(view(guest, "register")).toBeVisible();
+    await expect(guest.locator("#join-code")).toHaveValue(code);
+    await guest.locator("#clear-join-code").click();
+    await expect(guest.locator("#join-code")).toHaveValue("");
+    await expect(guest.locator("#clear-join-code")).toBeHidden();
+    await guest.reload();
+    await guest.locator("#prepare").click();
+    await expect(guest.locator("#join-code")).toHaveValue("");
   } finally {
     await guestContext.close();
   }
@@ -187,22 +232,30 @@ test("manual invite is selectable when clipboard fails and all original language
   });
   await page.goto("./");
   await expect(page.locator("#language option")).toHaveCount(15);
+  const thumbnail = await page.evaluate(async () => {
+    const url = new URL(document.querySelector('meta[property="og:image"]').content);
+    const picture = new Image();
+    picture.src = url.pathname;
+    await picture.decode();
+    return [picture.naturalWidth, picture.naturalHeight];
+  });
+  expect(thumbnail).toEqual([1200, 630]);
   for (const locale of ["zh-Hant", "fr", "th", "ja"]) {
     await page.locator("#language").selectOption(locale);
     await expect(page.locator("html")).toHaveAttribute("lang", locale);
   }
   await page.locator("#prepare").click();
   await page.locator("#join-button").click();
-  await expect(page.locator("#register-status")).toHaveText("12文字のルームIDを入力してください。");
+  await expect(page.locator("#register-status")).toHaveText("4桁のルームIDを入力してください。");
   await page.locator("#create-room").click();
-  await expect(page.locator("#invite-code")).toHaveValue(/^[0-9A-Z]{12}$/);
+  await expect(page.locator("#invite-code")).toHaveValue(/^[0-9]{4}$/);
   await page.locator("#copy-room").click();
   await expect(page.locator("#copy-status")).toHaveText(/IDを選択してコピー/);
   const selection = await page.locator("#invite-code").evaluate(input => [input.selectionStart, input.selectionEnd]);
-  expect(selection).toEqual([0, 12]);
+  expect(selection).toEqual([0, 4]);
 });
 
-const sampleRoom = "123456789ABC";
+const sampleRoom = "0937";
 const sampleMatch = "01234567-89ab-cdef-0123-456789abcdef";
 const samplePlayers = [
   { name: "Host", faceId: 12, ready: true, connected: true },

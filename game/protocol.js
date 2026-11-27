@@ -1,4 +1,5 @@
 export const VERSION = 1;
+export const ROOM_CODE_DIGITS = 4;
 export const CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 export const MAX_PACKET_BYTES = 2048;
 export const FACE_COUNT = 18;
@@ -17,10 +18,14 @@ const controlCharacters = /[\p{Cc}\u202A-\u202E\u2066-\u2069]/u;
 
 export const emptyInput = () => Object.fromEntries(fields.map(key => [key, false]));
 
+export const isShortCode = value => typeof value === 'string' && /^[0-9]{4}$/.test(value);
+
 export function normalizeCode(value) {
   if (typeof value !== 'string') return null;
-  const code = value.trim().toUpperCase().replaceAll(/[ -]/g, '');
-  return codePattern.test(code) ? code : null;
+  const trimmed = value.trim().replace(/[０-９]/g, digit => String(digit.charCodeAt(0) - 0xff10));
+  if (isShortCode(trimmed)) return trimmed;
+  const legacy = trimmed.toUpperCase().replaceAll(/[ -]/g, '');
+  return codePattern.test(legacy) ? legacy : null;
 }
 
 export function isKey(value) {
@@ -34,13 +39,13 @@ export function isMatchId(value) {
 export function parseRegistration(body) {
   if (!body || Array.isArray(body) || typeof body !== 'object') return { error: 'invalid' };
   if (body.version !== VERSION) return { error: 'version' };
-  const { seatKey, rankingKey = null, faceId, name = '' } = body;
-  if (!isKey(seatKey) || !Number.isInteger(faceId) || faceId < 0 || faceId >= FACE_COUNT ||
+  const { seatKey, rankingKey = null, faceId, name = '', roomCodeDigits = null } = body;
+  if ((roomCodeDigits !== null && roomCodeDigits !== ROOM_CODE_DIGITS) || !isKey(seatKey) || !Number.isInteger(faceId) || faceId < 0 || faceId >= FACE_COUNT ||
       typeof name !== 'string' || controlCharacters.test(name) || [...name.trim()].length > 24 ||
       (rankingKey !== null && !isKey(rankingKey)) || (name.trim() && !rankingKey)) {
     return { error: 'invalid' };
   }
-  return { seatKey, faceId, name: name.trim(), rankingKey };
+  return { seatKey, faceId, name: name.trim(), rankingKey, roomCodeDigits };
 }
 
 export function parseMessage(raw) {
@@ -61,8 +66,13 @@ export function parseMessage(raw) {
   }
   if (!Number.isSafeInteger(generation) || generation < 1) return { error: 'invalid' };
   if (type === 'leave') return { type, generation };
+  const { layout } = packet;
+  if (['swapSeats', 'kickGuest'].includes(type)) {
+    return Number.isSafeInteger(layout) && layout >= 0 ? { type, generation, layout } : { error: 'invalid' };
+  }
   if (type === 'ready') {
-    return typeof packet.ready === 'boolean' ? { type, generation, ready: packet.ready } : { error: 'invalid' };
+    return typeof packet.ready === 'boolean' && (layout === undefined || (Number.isSafeInteger(layout) && layout >= 0))
+      ? { type, generation, ready: packet.ready, layout } : { error: 'invalid' };
   }
   if (type === 'heartbeat' && matchId === null) return { type, generation, matchId };
   if (!isMatchId(matchId)) return { error: 'invalid' };
