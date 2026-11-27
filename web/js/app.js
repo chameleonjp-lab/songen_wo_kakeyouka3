@@ -3,7 +3,7 @@ import { normalizeCode, isShortCode, emptyInput } from "../../game/protocol.js";
 import { applyLanguage, language, languages, setLanguage, t } from "./i18n.js";
 import { clearReservation, createMatchClient, leaveRoom, loadSession, readStorage, registerRoom, saveSession, writeStorage } from "./match-client.js";
 import { $, FACES, createBoard, createPhoto, renderHud, renderPlayers, timeLeft } from "./view.js";
-import { formatScore, outcomeText, showAnnouncement, showScore } from "./result-view.js";
+import { dignityText, formatScore, outcomeText, showAnnouncement, showScore } from "./result-view.js";
 
 const publicUrl = "https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/";
 const rankingUrl = "https://chameleonjp-lab.github.io/chameleonjp_lab/ranking.html?game=songen_wo_kakeyouka3_online";
@@ -48,10 +48,7 @@ let gameError = "";
 let registrationAttempt = 0;
 let leaveRetryTimer = 0;
 
-for (const link of document.querySelectorAll(".ranking")) {
-  link.hidden = link.id !== "home-ranking" && !rankingsPublic;
-  link.href = rankingUrl;
-}
+$("#home-ranking").href = rankingUrl;
 $("#name-disclosure").hidden = !rankingsPublic;
 if (!rankingsPublic) $("#player-name").removeAttribute("aria-describedby");
 for (const [locale, name] of Object.entries(languages)) {
@@ -115,23 +112,6 @@ function shareLink(text) {
   return url.href;
 }
 
-function refreshShareLinks() {
-  $("#home-share").href = shareLink([t("title"), t("intro"), publicUrl].join("\n"));
-  if (session?.code) {
-    const invite = new URL(publicUrl);
-    invite.hash = new URLSearchParams({ room: session.code }).toString();
-    $("#invite-share").href = shareLink([
-      "私と尊厳を賭けようよ！", `ルームID：${session.code}`, "#尊厳を賭けようか3", invite.href
-    ].join("\n"));
-  }
-  if (result && session) {
-    const score = formatScore(result.scoreBySeat[session.seat]);
-    $("#score-share").href = shareLink(t("scoreText", {
-      p0: t("title"), p1: outcomeText(result, session.seat), p2: score, p3: publicUrl
-    }));
-  }
-}
-
 function refreshAudioText() {
   const button = $("#sound-toggle");
   button.textContent = `${t("m115")} ${t(audio.enabled ? "m117" : "m118")}`;
@@ -156,7 +136,6 @@ function refreshRegister() {
   refreshJoinField();
   if (created) {
     $("#invite-code").value = session.code;
-    refreshShareLinks();
   }
   setStatus($("#register-status"), registerStatus, Boolean(registerStatus && registerStatus !== "connecting"));
   setStatus($("#copy-status"), copyStatus, copyStatus === "copyFailed");
@@ -182,6 +161,7 @@ function refreshLobby() {
   else if (connectStatus !== "connected") message = connectStatus === "reconnecting" ? "reconnecting" : "connecting";
   else if (room?.phase !== "countdown") message = room?.players[1 - seat] ? "waitingReady" : "waiting";
   setStatus($("#lobby-status"), message, Boolean(ownLobbyStatus));
+  $("#reload-lobby").hidden = connectStatus !== "reconnecting" && !["network", "disconnected", "version"].includes(ownLobbyStatus);
   $("#ready").disabled = !client.connected || Boolean(readyPending || room?.players[seat]?.ready) || room?.phase !== "waiting";
   const manages = ownsRoom() && isShortCode(session?.code);
   const waiting = room?.phase === "waiting";
@@ -233,14 +213,13 @@ function refreshDynamic() {
     showScore(result, session.seat, canReturnToLobby(), rankingsPublic);
     setStatus($("#score-status"), scoreStatus, Boolean(scoreStatus && scoreStatus !== "connecting"));
     $("#return-to-room").disabled = returnPending;
-    refreshShareLinks();
   }
 }
 
 function refreshLanguage() {
   $("#language").value = language;
   refreshAudioText();
-  refreshShareLinks();
+  $("#home-share").href = shareLink([t("title"), t("intro"), publicUrl].join("\n"));
   refreshDynamic();
   if (shown === "game") gameBoard.render(lastSnapshot);
 }
@@ -558,6 +537,27 @@ $("#copy-room").addEventListener("click", async () => {
   refreshRegister();
 });
 $("#invite-code").addEventListener("click", event => event.currentTarget.select());
+$("#invite-share").addEventListener("click", () => {
+  if (!session?.code || !ownsRoom()) return;
+  const invite = new URL(publicUrl);
+  invite.hash = new URLSearchParams({ room: session.code }).toString();
+  window.location.assign(shareLink([
+    "私と尊厳を賭けようよ！", `ルームID：${session.code}`, "#尊厳を賭けようか3", invite.href
+  ].join("\n")));
+});
+$("#score-share").addEventListener("click", () => {
+  if (!result || !session) return;
+  const seat = session.seat;
+  const caption = dignityText(result, seat);
+  window.location.assign(shareLink(t("scoreText", {
+    p0: t("title"), p1: outcomeText(result, seat), p2: formatScore(result.scoreBySeat[seat]),
+    p3: publicUrl, p4: caption ? caption + "\n" : "",
+  })));
+});
+$("#reload-lobby").addEventListener("click", () => {
+  saveSession(session);
+  window.location.reload();
+});
 $("#ready").addEventListener("click", () => {
   audio.unlock();
   ownLobbyStatus = "";
