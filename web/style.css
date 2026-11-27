@@ -134,7 +134,12 @@ legend { margin-bottom: 4px; }
 #invite-code, #join-code, .lobby-code b { letter-spacing: .12em; font-family: ui-monospace, monospace; font-weight: 750; }
 #invite-code { color: var(--accent); font-size: 1.12rem; user-select: all; -webkit-user-select: all; }
 #register-status:not(:empty) { margin-block: 8px; }
-#join-room + .status + button { margin-top: 9px; }
+.room-list-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 9px; }
+.open-rooms { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.open-rooms h3 { margin: 0 0 8px; font-size: 1rem; }
+#room-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+#room-list button { min-width: 0; padding: 8px; font: 700 1.05rem ui-monospace, monospace; letter-spacing: .12em; }
+#room-list-status:not(:empty) + #room-list:not(:empty) { margin-top: 8px; }
 
 .players { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .player {

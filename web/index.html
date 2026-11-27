@@ -98,7 +98,15 @@
           <button id="join-button" type="submit" data-i18n="m058">参加する</button>
         </form>
         <p id="register-status" class="status" role="status"></p>
-        <button class="back" type="button" data-home data-i18n="home">ホーム</button>
+        <div class="room-list-actions">
+          <button class="back" type="button" data-home data-i18n="home">ホーム</button>
+          <button id="refresh-rooms" type="button" data-i18n="refreshRooms">ルーム更新</button>
+        </div>
+        <section class="open-rooms" aria-labelledby="open-rooms-title">
+          <h3 id="open-rooms-title" data-i18n="openRooms">参加できるルーム</h3>
+          <p id="room-list-status" class="status" role="status"></p>
+          <div id="room-list"></div>
+        </section>
       </div>
     </section>
 

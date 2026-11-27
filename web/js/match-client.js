@@ -1,5 +1,5 @@
 import {
-  AUTH_TIMEOUT_MS, HEARTBEAT_TIMEOUT_MS, PAUSE_BUDGET_MS, RESULT_LIFETIME_MS, ROOM_CODE_DIGITS, VERSION,
+  AUTH_TIMEOUT_MS, HEARTBEAT_TIMEOUT_MS, MAX_LISTED_ROOMS, PAUSE_BUDGET_MS, RESULT_LIFETIME_MS, ROOM_CODE_DIGITS, VERSION,
   isKey, isMatchId, isShortCode, normalizeCode
 } from "../../game/protocol.js";
 
@@ -55,7 +55,8 @@ function registrationKey(route) {
   return lastReservation.seatKey;
 }
 
-export function clearReservation() {
+export function clearReservation(seatKey) {
+  if (seatKey && (lastReservation ?? readSessionObject(RESERVATION_STORAGE_KEY))?.seatKey !== seatKey) return;
   lastReservation = null;
   saveSessionObject(RESERVATION_STORAGE_KEY, null);
 }
@@ -63,6 +64,16 @@ export function clearReservation() {
 function serverUrl(path) {
   if (!endpoint) throw new Error("unavailable");
   return new URL(path, endpoint);
+}
+
+export async function listRooms(exclude, signal) {
+  const url = serverUrl("/v1/rooms");
+  if (isShortCode(exclude)) url.searchParams.set("exclude", exclude);
+  const response = await fetch(url, { signal, cache: "no-store" });
+  if (!response.ok) throw new Error(response.status === 429 ? "rate_limit" : "roomsFailed");
+  const { rooms } = await response.json();
+  if (!Array.isArray(rooms) || !rooms.every(isShortCode)) throw new Error("roomsFailed");
+  return [...new Set(rooms)].slice(0, MAX_LISTED_ROOMS);
 }
 
 export async function registerRoom(kind, { code, name, faceId, onReserve }) {
@@ -85,15 +96,15 @@ export async function registerRoom(kind, { code, name, faceId, onReserve }) {
     const room = await response.json().catch(() => null);
     if (!response.ok || !normalizeCode(room?.code) || ![0, 1].includes(room?.seat)) {
       const reason = room?.code ?? "network";
-      if (reason === "conflict" || reason === "expired") clearReservation();
+      if (reason === "conflict" || reason === "expired") clearReservation(seatKey);
       throw new Error(reason);
     }
     if (kind === "create" && !isShortCode(room.code)) {
       leaveRoom({ ...room, seatKey }).catch(() => {});
-      clearReservation();
+      clearReservation(seatKey);
       throw new Error("version");
     }
-    clearReservation();
+    clearReservation(seatKey);
     return { ...room, owner: room.owner ?? kind === "create", seatKey, matchId: null, screen: kind === "create" ? "register" : "lobby" };
   } finally {
     clearTimeout(timeout);

@@ -1,5 +1,6 @@
 export const VERSION = 1;
 export const ROOM_CODE_DIGITS = 4;
+export const MAX_LISTED_ROOMS = 9;
 export const CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 export const MAX_PACKET_BYTES = 2048;
 export const FACE_COUNT = 18;

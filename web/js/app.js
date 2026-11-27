@@ -4,6 +4,7 @@ import { applyLanguage, language, languages, setLanguage, t } from "./i18n.js";
 import { clearReservation, createMatchClient, leaveRoom, loadSession, queueRoomExit, readStorage, registerRoom, saveSession, writeStorage } from "./match-client.js";
 import { $, FACES, createBoard, createPhoto, renderHud, renderPlayers, timeLeft } from "./view.js";
 import { createKeyboardSettings } from "./keyboard.js";
+import { createRoomList } from "./room-list.js";
 import { dignityText, formatScore, outcomeText, showAnnouncement, showScore } from "./result-view.js";
 
 const publicUrl = "https://chameleonjp-lab.github.io/songen_wo_kakeyouka3/";
@@ -76,6 +77,12 @@ const client = createMatchClient({
 
 const ownsRoom = () => session?.owner ?? session?.seat === 0;
 const canReturnToLobby = () => !session?.returnUnavailable && (isShortCode(session?.code) || ownsRoom());
+const roomList = createRoomList({
+  screen: $('[data-screen="register"]'),
+  ownCode: () => ownsRoom() ? session?.code : null,
+  isJoining: () => busy,
+  onJoin: code => register("join", code),
+});
 
 function showScreen(name) {
   if (shown === "game" && name !== "game") {
@@ -83,6 +90,7 @@ function showScreen(name) {
     if ($("#forfeit-dialog").open) $("#forfeit-dialog").close();
   }
   const changed = shown !== name;
+  if (changed && shown === "register") roomList.close();
   shown = name;
   clearTimeout(photoTimer);
   if (name === "announcement") {
@@ -94,7 +102,10 @@ function showScreen(name) {
     session.screen = name;
     saveSession(session);
   }
-  if (changed) window.scrollTo(0, 0);
+  if (changed) {
+    window.scrollTo(0, 0);
+    if (name === "register") void roomList.refresh();
+  }
   refreshDynamic();
 }
 
@@ -138,6 +149,7 @@ function refreshRegister() {
   setStatus($("#register-status"), registerStatus, Boolean(registerStatus && registerStatus !== "connecting"));
   setStatus($("#copy-status"), copyStatus, copyStatus === "copyFailed");
   refreshFaces();
+  roomList.update();
 }
 
 function updateLobbyClock() {
@@ -243,6 +255,7 @@ function saveJoinCode(value) {
 function goHome({ target = "home", leave = true } = {}) {
   if (shown === "game" && connectStatus !== "failed") return;
   registrationAttempt++;
+  if (busy) clearReservation();
   busy = false;
   const leavingRoom = leave && ["register", "lobby", "score"].includes(shown);
   if (leavingRoom && session) queueRoomExit(session);
@@ -267,9 +280,9 @@ function goHome({ target = "home", leave = true } = {}) {
   showScreen(target);
 }
 
-async function register(kind) {
+async function register(kind, listedCode) {
   if (busy || (kind === "create" && session?.code)) return;
-  const code = kind === "join" ? normalizeCode($("#join-code").value) : undefined;
+  const code = kind === "join" ? normalizeCode(listedCode ?? $("#join-code").value) : undefined;
   if (kind === "join" && !code) {
     registerStatus = "invalidCode";
     refreshRegister();
@@ -282,7 +295,7 @@ async function register(kind) {
   }
   const name = $("#player-name").value.trim();
   const faceId = selectedFace;
-  if (kind === "join") saveJoinCode(code);
+  if (kind === "join" && !listedCode) saveJoinCode(code);
   const attempt = ++registrationAttempt;
   writeStorage(browserNameKey, name);
   busy = true;
@@ -302,11 +315,15 @@ async function register(kind) {
     if (session?.code && session.code !== reservation.code) queueRoomExit(session);
     session = reservation;
     saveSession(session);
-    if (kind === "join") activateRoom();
-    else refreshRegister();
+    if (kind === "join") {
+      $("#join-code").value = code;
+      if (listedCode) saveJoinCode(code);
+      activateRoom();
+    } else refreshRegister();
   } catch (error) {
     if (attempt !== registrationAttempt) return;
     registerStatus = error instanceof TypeError || error.name === "AbortError" ? "network" : error.message;
+    if (listedCode && ["full", "expired"].includes(registerStatus)) roomList.remove(listedCode);
   } finally {
     if (attempt === registrationAttempt) {
       registrationPending = null;
