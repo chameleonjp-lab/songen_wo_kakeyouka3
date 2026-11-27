@@ -323,9 +323,28 @@ const cpuText = {
   "th": ["แข่งกับคอมพิวเตอร์", "แข่งต่อเนื่องกับคอมพิวเตอร์"]
 };
 
+const listingKeys = ["openRooms", "refreshRooms", "roomsLoading", "roomsEmpty", "roomsFailed", "joinListedRoom"];
+const listingText = {
+  ja: ["参加できるルーム", "ルーム更新", "ルームを確認中…", "今は参加できるルームがありません。", "一覧を取得できませんでした。「ルーム更新」で再度お試しください。", "ルーム {p0} に参加"],
+  en: ["Available rooms", "Refresh rooms", "Checking rooms…", "No rooms are available right now.", "Couldn’t load the rooms. Tap Refresh rooms to try again.", "Join room {p0}"],
+  es: ["Salas disponibles", "Actualizar salas", "Buscando salas…", "Ahora no hay salas disponibles.", "No se pudieron cargar las salas. Pulsa «Actualizar salas» para reintentar.", "Entrar en la sala {p0}"],
+  "pt-BR": ["Salas disponíveis", "Atualizar salas", "Buscando salas…", "Nenhuma sala disponível no momento.", "Não foi possível carregar as salas. Toque em Atualizar salas para tentar de novo.", "Entrar na sala {p0}"],
+  "zh-Hans": ["可加入的房间", "刷新房间", "正在查询房间…", "暂时没有可加入的房间。", "无法加载房间列表。请点“刷新房间”重试。", "加入房间 {p0}"],
+  fr: ["Salles disponibles", "Actualiser les salles", "Recherche de salles…", "Aucune salle disponible pour le moment.", "Impossible de charger les salles. Appuyez sur « Actualiser les salles » pour réessayer.", "Rejoindre la salle {p0}"],
+  de: ["Verfügbare Räume", "Räume aktualisieren", "Räume werden gesucht…", "Zurzeit sind keine Räume frei.", "Die Räume konnten nicht geladen werden. Tippe zum Wiederholen auf „Räume aktualisieren“.", "Raum {p0} beitreten"],
+  ko: ["참가 가능한 방", "방 목록 새로고침", "방을 확인하는 중…", "지금은 참가할 수 있는 방이 없습니다.", "방 목록을 불러오지 못했습니다. 새로고침을 눌러 다시 시도하세요.", "{p0}번 방 참가"],
+  ru: ["Доступные комнаты", "Обновить список", "Поиск комнат…", "Сейчас свободных комнат нет.", "Не удалось загрузить комнаты. Нажмите «Обновить список», чтобы повторить.", "Войти в комнату {p0}"],
+  it: ["Stanze disponibili", "Aggiorna stanze", "Ricerca stanze…", "Al momento non ci sono stanze disponibili.", "Impossibile caricare le stanze. Tocca Aggiorna stanze per riprovare.", "Entra nella stanza {p0}"],
+  "zh-Hant": ["可加入的房間", "重新整理房間", "正在查詢房間…", "目前沒有可加入的房間。", "無法載入房間清單。請點選「重新整理房間」再試一次。", "加入房間 {p0}"],
+  id: ["Ruang tersedia", "Muat ulang ruang", "Mencari ruang…", "Belum ada ruang yang tersedia.", "Daftar ruang gagal dimuat. Ketuk Muat ulang ruang untuk mencoba lagi.", "Gabung ke ruang {p0}"],
+  tr: ["Müsait odalar", "Odaları yenile", "Odalar aranıyor…", "Şu anda müsait oda yok.", "Odalar yüklenemedi. Tekrar denemek için Odaları yenile’ye dokunun.", "{p0} numaralı odaya katıl"],
+  vi: ["Phòng có thể tham gia", "Làm mới danh sách", "Đang tìm phòng…", "Hiện chưa có phòng trống.", "Không tải được danh sách phòng. Hãy nhấn Làm mới danh sách để thử lại.", "Vào phòng {p0}"],
+  th: ["ห้องที่เข้าร่วมได้", "รีเฟรชรายชื่อห้อง", "กำลังค้นหาห้อง…", "ตอนนี้ยังไม่มีห้องว่าง", "โหลดรายชื่อห้องไม่สำเร็จ แตะรีเฟรชรายชื่อห้องเพื่อลองอีกครั้ง", "เข้าร่วมห้อง {p0}"],
+};
+
 export const onlineMessages = Object.fromEntries(Object.keys(interfaceText).map(language => {
-  const keys = [...interfaceKeys, ...statusKeys, ...shareKeys, ...detailKeys, ...roomKeys, ...dignityKeys, ...keyboardKeys, ...cpuKeys];
-  const values = [...interfaceText[language], ...statusText[language], ...shareText[language], ...detailText[language], ...roomText[language], ...dignityText[language], ...keyboardText[language], ...cpuText[language]];
+  const keys = [...interfaceKeys, ...statusKeys, ...shareKeys, ...detailKeys, ...roomKeys, ...dignityKeys, ...keyboardKeys, ...cpuKeys, ...listingKeys];
+  const values = [...interfaceText[language], ...statusText[language], ...shareText[language], ...detailText[language], ...roomText[language], ...dignityText[language], ...keyboardText[language], ...cpuText[language], ...listingText[language]];
   if (keys.length !== values.length) throw new Error(`Incomplete translation: ${language}`);
   return [language, Object.fromEntries(keys.map((key, index) => [key, values[index]]))];
 }));

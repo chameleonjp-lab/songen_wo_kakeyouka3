@@ -1,4 +1,4 @@
-import { ROOM_CODE_DIGITS, VERSION } from '../game/protocol.js';
+import { MAX_LISTED_ROOMS, ROOM_CODE_DIGITS, VERSION, isShortCode } from '../game/protocol.js';
 
 const pagesOrigin = 'https://chameleonjp-lab.github.io';
 
@@ -42,6 +42,14 @@ export async function verifyPagesReadiness(matchOrigin, publishRankings, request
   });
   if (!preflight.ok || preflight.headers.get('access-control-allow-origin') !== pagesOrigin) {
     throw new Error('The Worker must allow room requests from the GitHub Pages origin.');
+  }
+  const directory = await request(new URL('/v1/rooms', url), {
+    method: 'GET', headers: { Origin: pagesOrigin }, redirect: 'error', signal: AbortSignal.timeout(15_000),
+  });
+  const result = directory.ok ? await directory.json() : null;
+  if (directory.headers.get('access-control-allow-origin') !== pagesOrigin ||
+      !Array.isArray(result?.rooms) || result.rooms.length > MAX_LISTED_ROOMS || !result.rooms.every(isShortCode)) {
+    throw new Error('The Worker must serve the available room list before publishing.');
   }
   return health.rankingsPublic;
 }

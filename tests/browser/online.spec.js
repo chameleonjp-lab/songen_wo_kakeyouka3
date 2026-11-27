@@ -209,8 +209,7 @@ test("only the owner can swap or remove a guest, and the guest can clear a remem
     await guest.goto("./");
     await guest.locator("#prepare").click();
     await guest.locator("#player-name").fill("花子");
-    await guest.locator("#join-code").fill(code);
-    await guest.locator("#join-button").click();
+    await guest.getByRole("button", { name: `ルーム ${code} に参加` }).click();
     await expect(view(guest, "lobby")).toBeVisible();
     await expect(guest.locator("#owner-actions")).toBeHidden();
     await guest.locator("#ready").click();
@@ -226,6 +225,8 @@ test("only the owner can swap or remove a guest, and the guest can clear a remem
     await expect(guest.locator("#join-code")).toHaveValue(code);
     await expect(host.locator("#lobby-players [data-seat='0']")).toHaveAttribute("data-present", "false");
 
+    await guest.locator("#refresh-rooms").click();
+    await expect(guest.getByRole("button", { name: `ルーム ${code} に参加` })).toBeVisible();
     await guest.locator("#join-button").click();
     await expect(guest.locator("#lobby-players [data-local=true]")).toHaveAttribute("data-seat", "0");
     await guest.locator("#leave-lobby").click();
