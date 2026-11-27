@@ -88,6 +88,7 @@ test('the scoped ranking writer verifies the credential and submits anonymous st
     assert.equal(req.headers.apikey, scoped.RANKING_PUBLISHABLE_KEY);
     assert.equal(req.headers['X-Songen3-Ranking-Key'], writer ? scoped.RANKING_INGEST_KEY : undefined);
     assert.equal(req.headers.Authorization, undefined);
+    assert.equal(req.redirect, 'manual');
     requests.push([url.pathname, JSON.parse(req.body)]);
     return writer ? Response.json(true) : Response.json([{ total_play_count: 2, player_count: 0 }]);
   };
@@ -100,4 +101,9 @@ test('the scoped ranking writer verifies the credential and submits anonymous st
   assert.equal(storage.records.size, 0);
 
   assert.equal(await rankingReady(scoped, async () => new Response(null, { status: 403 })), false);
+  const redirect = async () => new Response(null, { status: 307, headers: { Location: 'https://example.invalid' } });
+  storage.records.set(key, item);
+  assert.equal(await rankingReady(scoped, redirect), false);
+  await flushRankingEvents(storage, scoped, redirect);
+  assert.equal(storage.records.has(key), true);
 });

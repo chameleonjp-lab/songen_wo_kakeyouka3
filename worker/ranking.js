@@ -51,7 +51,8 @@ async function rpc(config, functionName, body, sender) {
     method: 'POST',
     headers: functionName === config.writer ? { ...config.headers, ...config.writerHeaders } : config.headers,
     signal: AbortSignal.timeout(3500),
-    redirect: 'error',
+    // Workers support manual redirects. Only accept success from the configured host.
+    redirect: 'manual',
     body: JSON.stringify(body),
   });
   return response;
