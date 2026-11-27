@@ -387,6 +387,10 @@ legend { margin-bottom: 4px; }
 .breakdown > div + div { border-top: 1px solid var(--line); }
 .breakdown dd { color: var(--ink); font-variant-numeric: tabular-nums; text-align: end; font-weight: 650; }
 dialog { width: min(calc(100% - 24px), 410px); padding: 18px; color: var(--ink); background: #20212b; border: 1px solid var(--line); border-radius: 16px; }
+#keyboard-dialog { max-block-size: calc(100dvh - 32px); overflow: auto; }
+#keyboard-dialog .key-binding { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#keyboard-dialog .key-binding[aria-pressed="true"] { border-color: var(--accent); }
+#keyboard-dialog kbd { padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; }
 dialog::backdrop { background: #08090bc9; }
 
 @media (orientation: landscape) {
