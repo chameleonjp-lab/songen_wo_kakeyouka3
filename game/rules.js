@@ -24,7 +24,7 @@ const CLASH_DISTANCE = 28;
 const MOVE_SPEED = 112;
 const MIN_GAP = 100;
 const PART_DURABILITY = { leftArm: 2, rightArm: 2, leftFoot: 2, rightFoot: 2, head: 3 };
-const PART_OFFSET = { leftArm: -38, rightArm: 38, leftFoot: -38, rightFoot: 38, head: 0, heart: 0 };
+const PART_OFFSET = { leftArm: -38, rightArm: 38, leftFoot: -19, rightFoot: 19, head: 0, heart: 0 };
 const OPPOSITE_PART = { leftArm: "rightArm", rightArm: "leftArm", leftFoot: "rightFoot", rightFoot: "leftFoot" };
 const LIMBS = Object.keys(OPPOSITE_PART);
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -292,9 +292,18 @@ function guardArmFor(target, attacker, timestamp, includeLastInstant = false) {
   return target.parts[front].broken ? null : front;
 }
 
+function crouchingForwardArm(target, attacker, timestamp) {
+  if (postureOf(target, timestamp) !== "crouch" || brokenFeet(target) !== 2) return null;
+
+  const front = nearPart(target, attacker, "Arm");
+  const back = OPPOSITE_PART[front];
+  return target.parts[front].broken && !target.parts[back].broken ? back : null;
+}
+
 function partOffset(target, attacker, part, timestamp) {
-  if (part.endsWith("Arm") && guardArmFor(target, attacker, timestamp) === part) {
-    return PART_OFFSET[nearPart(target, attacker, "Arm")];
+  if (part.endsWith("Arm")) {
+    const forwardArm = guardArmFor(target, attacker, timestamp) ?? crouchingForwardArm(target, attacker, timestamp);
+    if (forwardArm === part) return PART_OFFSET[nearPart(target, attacker, "Arm")];
   }
   if (part.endsWith("Foot")) {
     const near = nearPart(target, attacker, "Foot");
