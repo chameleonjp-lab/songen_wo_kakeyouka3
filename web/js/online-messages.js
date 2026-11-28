@@ -342,9 +342,27 @@ const listingText = {
   th: ["ห้องที่เข้าร่วมได้", "รีเฟรชรายชื่อห้อง", "กำลังค้นหาห้อง…", "ตอนนี้ยังไม่มีห้องว่าง", "โหลดรายชื่อห้องไม่สำเร็จ แตะรีเฟรชรายชื่อห้องเพื่อลองอีกครั้ง", "เข้าร่วมห้อง {p0}"],
 };
 
+const opponentOffline = {
+  ja: "相手の接続が切れました。戻るまでお待ちください。",
+  en: "Your opponent disconnected. Waiting for them to return.",
+  es: "Tu rival se desconectó. Esperando a que vuelva.",
+  "pt-BR": "Seu oponente se desconectou. Aguardando o retorno.",
+  "zh-Hans": "对手已断开连接，正在等待对方返回。",
+  fr: "Votre adversaire est déconnecté. En attente de son retour.",
+  de: "Dein Gegenüber ist offline. Warte auf die Rückkehr.",
+  ko: "상대의 연결이 끊겼습니다. 돌아올 때까지 기다려 주세요.",
+  ru: "Соперник отключился. Ожидаем его возвращения.",
+  it: "L’avversario si è disconnesso. In attesa del suo ritorno.",
+  "zh-Hant": "對手已中斷連線，正在等待對方返回。",
+  id: "Lawan terputus. Menunggu lawan kembali.",
+  tr: "Rakibin bağlantısı kesildi. Geri dönmesi bekleniyor.",
+  vi: "Đối thủ đã mất kết nối. Đang chờ họ quay lại.",
+  th: "คู่ต่อสู้ขาดการเชื่อมต่อ กำลังรอให้กลับมา",
+};
+
 export const onlineMessages = Object.fromEntries(Object.keys(interfaceText).map(language => {
-  const keys = [...interfaceKeys, ...statusKeys, ...shareKeys, ...detailKeys, ...roomKeys, ...dignityKeys, ...keyboardKeys, ...cpuKeys, ...listingKeys];
-  const values = [...interfaceText[language], ...statusText[language], ...shareText[language], ...detailText[language], ...roomText[language], ...dignityText[language], ...keyboardText[language], ...cpuText[language], ...listingText[language]];
+  const keys = [...interfaceKeys, ...statusKeys, ...shareKeys, ...detailKeys, ...roomKeys, ...dignityKeys, ...keyboardKeys, ...cpuKeys, ...listingKeys, "opponentOffline"];
+  const values = [...interfaceText[language], ...statusText[language], ...shareText[language], ...detailText[language], ...roomText[language], ...dignityText[language], ...keyboardText[language], ...cpuText[language], ...listingText[language], opponentOffline[language]];
   if (keys.length !== values.length) throw new Error(`Incomplete translation: ${language}`);
   return [language, Object.fromEntries(keys.map((key, index) => [key, values[index]]))];
 }));

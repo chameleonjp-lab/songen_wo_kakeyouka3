@@ -112,3 +112,17 @@ test('keeps scores but never queues ranking data when the match started during t
   assert.equal(result.finalSnapshot.matchId, first);
   assert.deepEqual(resumed.drainEvents(), []);
 });
+
+test('a delayed countdown exit interrupts only its own unconfirmed start and keeps the two start events', () => {
+  const { room, left } = setup();
+  room.heartbeat(0, left.generation, first, 3050);
+  assert.equal(room.finishCountdownExit(0, 3000, 3100), false);
+  assert.equal(room.finishCountdownExit(1, 2000, 3100), false);
+  assert.equal(room.finishCountdownExit(1, 3000, 3100), true);
+  assert.deepEqual(room.result(first).scoreBySeat, [null, null]);
+  assert.deepEqual(room.drainEvents().map(event => event.kind), ['start', 'start']);
+  const later = setup();
+  assert.equal(later.room.finishCountdownExit(1, 3000, 3001 + PAUSE_BUDGET_MS), false);
+  assert.ok(later.room.acceptInput(0, packet(later.left.generation, 1, { left: true }), 3050));
+  assert.equal(later.room.finishCountdownExit(0, 3000, 3100), false);
+});

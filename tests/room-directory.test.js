@@ -33,6 +33,9 @@ test('indexes only joinable numbered rooms, even when the owner is in the second
   const guest = { hash: 'guest' };
   room.register('create', '0042', owner, 100);
   const until = 100 + INVITE_LIFETIME_MS;
+  stageListing(room.data, 100);
+  assert.equal(room.data.listing, undefined);
+  room.connect(owner.hash, null, 101);
   stageListing(room.data, 101);
   assert.deepEqual(room.data.listing, { code: '0042', expiresAt: until, pending: true });
   room.register('join', '0042', guest, 102);
@@ -43,7 +46,13 @@ test('indexes only joinable numbered rooms, even when the owner is in the second
   assert.equal(room.leaveByHash(guest.hash, 105), 0);
   stageListing(room.data, 106);
   assert.equal(room.data.listing.expiresAt, until);
-  room.leaveByHash(owner.hash, 107);
+  room.disconnect(1, generation, 107);
+  stageListing(room.data, 107);
+  assert.equal(room.data.listing.expiresAt, 0);
+  room.connect(owner.hash, null, 108);
+  stageListing(room.data, 108);
+  assert.equal(room.data.listing.expiresAt, until);
+  room.leaveByHash(owner.hash, 109);
   stageListing(room.data, 108);
   assert.deepEqual(room.data.listing, { code: '0042', expiresAt: 0, pending: true });
   const legacy = new RoomSession();
@@ -76,6 +85,8 @@ test('keeps the seat usable when the index is down and retries the latest state 
     method: 'POST', body: JSON.stringify({ code: '0001', profile: { hash } }),
   }));
   assert.equal((await register(room, 'create', 'owner')).status, 200);
+  room.session.connect('owner', null, Date.now());
+  await room.commit();
   assert.equal(records.get('room').listing.pending, true);
   assert.ok(alarm < records.get('room').expiresAt);
   const resumed = await restart();
@@ -83,4 +94,24 @@ test('keeps the seat usable when the index is down and retries the latest state 
   assert.deepEqual(JSON.parse(write.mock.lastCall[1].body), { code: '0001', expiresAt: 0 });
   assert.equal(records.get('room').listing, undefined);
   assert.equal((await register(resumed, 'join', 'late')).status, 409);
+});
+
+test('a silent host is removed on the lobby presence deadline and listed again on reconnect', () => {
+  const room = new RoomSession();
+  room.register('create', '0042', { hash: 'host' }, 100);
+  const { generation } = room.connect('host', null, 100);
+  const deadline = room.nextLobbyPresenceCheck();
+  room.heartbeat(0, generation, null, 150);
+  room.advancePresence(deadline);
+  assert.equal(room.isCurrent(0, generation), true);
+  stageListing(room.data, deadline);
+  assert.ok(room.data.listing.expiresAt > deadline);
+  const lastDeadline = room.nextLobbyPresenceCheck();
+  room.advancePresence(lastDeadline);
+  stageListing(room.data, lastDeadline);
+  assert.equal(room.data.listing.expiresAt, 0);
+  assert.equal(room.nextLobbyPresenceCheck(), Infinity);
+  room.connect('host', null, lastDeadline + 1);
+  stageListing(room.data, lastDeadline + 1);
+  assert.ok(room.data.listing.expiresAt > lastDeadline);
 });

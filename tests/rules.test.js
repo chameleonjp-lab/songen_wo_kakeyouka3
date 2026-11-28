@@ -53,11 +53,18 @@ function compareObservation(state, original, tick) {
     height: projectile.height,
     x: tidy(projectile.currentX),
     y: tidy(projectile.y),
-  })), original.projectiles);
+  })), original.projectiles.map(projectile => ({
+    ...projectile,
+    // Online draws a jumping punch at its actual launch height, even on the jump tick.
+    y: projectile.height === "high" ? fixture.stage.groundY - 38 : projectile.y,
+  })));
 
   if (!original.final) {
     assert.equal(state.final, null);
-    assert.deepEqual(state.statsBySeat, original.statsBySeat);
+    const seconds = Math.floor(tick / 60);
+    assert.deepEqual(state.statsBySeat, original.statsBySeat.map(stats => ({
+      ...stats, elapsedSec: seconds, score: stats.score + 10 * (stats.elapsedSec - seconds),
+    })));
     return;
   }
 
@@ -169,4 +176,17 @@ test("keeps exact negative scores and omits scores for interrupted games", () =>
   assert.deepEqual(resolveMatch(next, "forfeit", ["loss", "win"]).scoreBySeat, [-40, 4990]);
   assert.deepEqual(resolveMatch(next, "interrupted", ["interrupted", "interrupted"]).scoreBySeat, [null, null]);
   assert.equal(next.final, null);
+});
+
+test("charges each elapsed second exactly once at all 180 whole-second boundaries", () => {
+  let state = start();
+  for (let tick = 1; tick <= 10800; tick++) {
+    state = stepMatch(state).state;
+    if (tick % 60 > 1 && tick % 60 < 59) continue;
+    const expected = Math.ceil(tick / 60);
+    assert.equal(state.statsBySeat[1].elapsedSec, Math.floor(tick / 60));
+    const result = resolveMatch(state, "forfeit", ["win", "loss"]);
+    assert.equal(result.elapsedSec, expected);
+    assert.equal(result.scoreBySeat[1], -10 * expected);
+  }
 });
