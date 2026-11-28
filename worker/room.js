@@ -96,8 +96,8 @@ export class RoomSession {
     if (seat >= 0) return this.isOwner(seat) ? { error: 'credentials' } : this.registration(seat);
     const openSeat = this.data.members.indexOf(null);
     if (openSeat < 0 || this.phase !== 'waiting') return { error: 'full' };
-    this.data.members[openSeat] = { ...newMember(profile), joinDeadline: now + JOIN_CONFIRMATION_MS };
     this.data.layout++;
+    this.data.members[openSeat] = { ...newMember(profile), joinedAtLayout: this.data.layout, joinDeadline: now + JOIN_CONFIRMATION_MS };
     return this.registration(openSeat);
   }
 
@@ -172,7 +172,10 @@ export class RoomSession {
   }
 
   setReady(seat, generation, ready, now, layout) {
-    if (layout !== undefined && layout !== this.data.layout) return false;
+    // The owner may have pressed Ready in the empty lobby before the guest's arrival was displayed.
+    const guestJustJoined = this.isOwner(seat) && layout === this.data.layout - 1 &&
+      this.data.members[1 - seat]?.joinedAtLayout === this.data.layout;
+    if (layout !== undefined && layout !== this.data.layout && !guestJustJoined) return false;
     if (!this.isCurrent(seat, generation) || !['waiting', 'countdown'].includes(this.phase)) return false;
     this.data.members[seat].ready = ready;
     if (this.data.members.every(member => member?.seen != null && member.ready)) {
@@ -230,6 +233,7 @@ export class RoomSession {
     if (this.isOwner(seat)) this.expire();
     else {
       this.data.members[seat] = null;
+      if (this.data.members[1 - seat]) this.data.members[1 - seat].ready = false;
       this.data.layout++;
     }
     return seat;

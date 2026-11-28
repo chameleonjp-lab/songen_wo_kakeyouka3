@@ -192,3 +192,27 @@ test('both roles can rejoin their reopened room after result history expires', (
     assert.equal(room.canReturnToRoom(first, match, room.data.expiresAt), false);
   }
 });
+
+test('only a guest filling the empty seat can carry an earlier owner Ready into the new layout', () => {
+  const room = new RoomSession();
+  room.register('create', '0038', profile('host'), 0);
+  const host = room.connect('host', null, 1);
+  const empty = room.data.layout;
+  room.register('join', '0038', profile('first'), 2);
+  const first = room.connect('first', null, 3);
+  assert.ok(room.setReady(1, first.generation, true, 4, room.data.layout));
+  assert.ok(room.setReady(0, host.generation, true, 5, empty));
+  assert.equal(room.phase, 'countdown');
+
+  const firstPair = room.data.layout;
+  room.leaveByHash('first', 6);
+  assert.equal(room.publicPlayers()[0].ready, false);
+  room.register('join', '0038', profile('next'), 7);
+  room.connect('next', null, 8);
+  assert.equal(room.setReady(0, host.generation, true, 9, firstPair), false);
+  assert.equal(room.setReady(0, host.generation, true, 10, empty), false);
+  const nextPair = room.data.layout;
+  assert.ok(room.swapSeats(0, host.generation, nextPair));
+  assert.equal(room.setReady(1, host.generation, true, 11, nextPair), false);
+  assert.equal(room.phase, 'waiting');
+});

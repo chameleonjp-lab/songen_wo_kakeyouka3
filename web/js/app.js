@@ -1,7 +1,7 @@
 import "./audio.js";
 import { normalizeCode, isShortCode, emptyInput } from "../../game/protocol.js";
 import { applyLanguage, language, languages, setLanguage, t } from "./i18n.js";
-import { clearReservation, createMatchClient, loadSession, queueRoomExit, recoverPendingJoin, readStorage, registerRoom, saveSession, writeStorage } from "./match-client.js";
+import { clearReservation, createMatchClient, exitTokenForSeat, loadSession, queueRoomExit, recoverPendingJoin, readStorage, registerRoom, saveSession, writeStorage } from "./match-client.js";
 import { $, FACES, createBoard, createPhoto, renderHud, renderPlayers, timeLeft } from "./view.js";
 import { createKeyboardSettings } from "./keyboard.js";
 import { createRoomList } from "./room-list.js";
@@ -693,12 +693,13 @@ window.addEventListener("hashchange", () => {
   showScreen("register");
 });
 
-function start() {
+async function start() {
   $("#join-code").value = normalizeCode(readStorage(joinCodeKey)) ?? "";
   applyLanguage();
   refreshLanguage();
   const invite = invitedCode();
   const saved = loadSession();
+  if (saved && !saved.exitToken) saved.exitToken = await exitTokenForSeat(saved.seatKey);
   if (invite) consumeInvite(invite);
   if (saved && keepsSeat(saved, invite)) {
     session = saved;
