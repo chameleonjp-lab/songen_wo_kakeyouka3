@@ -315,6 +315,11 @@ export class RoomSession {
     this.data.members[seat].confirmedMatchId = matchId;
     control.received = seq;
     control.latest = input;
+    // An attack keeps the posture controls that had arrived when it was pressed.
+    if (input.attackPressed && !control.pending.attackPressed) {
+      control.pending.attackCrouch = input.crouch;
+      control.pending.jumpBeforeAttack = control.pending.jumpPressed || input.jumpPressed;
+    }
     for (const edge of edges) control.pending[edge] ||= input[edge];
     return true;
   }
@@ -322,7 +327,11 @@ export class RoomSession {
   tick() {
     if (this.phase !== 'playing') return [];
     const inputs = this.controls.map(control => {
-      const input = { ...control.latest };
+      const input = {
+        ...control.latest,
+        attackCrouch: control.pending.attackCrouch,
+        jumpBeforeAttack: control.pending.jumpBeforeAttack,
+      };
       for (const edge of edges) {
         input[edge] = control.pending[edge];
         control.pending[edge] = false;

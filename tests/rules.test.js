@@ -299,3 +299,51 @@ test("a crouching fighter exposes the last arm at the forward position after bot
     assert.equal(fight.state.final.outcomeBySeat[attacker], "win");
   }
 });
+
+test("impact effects follow the defender on the tick they change posture", () => {
+  for (const seat of [0, 1]) {
+    const target = 1 - seat;
+    const front = seat === 0 ? "left" : "right";
+    for (const [before, input, attack, expected] of [
+      ["stand", { jumpPressed: true }, "low", front + "Foot"],
+      ["landing", {}, "low", front + "Foot"],
+      ["stand", { crouch: true }, "mid", "head"],
+      ["crouch", {}, "mid", front + "Arm"],
+    ]) {
+      let state = start();
+      const inputs = [{}, {}];
+      inputs[target] = { jumpPressed: before === "landing", crouch: before === "crouch" };
+      state = stepMatch(state, inputs).state;
+      if (before === "landing") {
+        while (stepMatch(state).state.players[target].posture === "jump") state = stepMatch(state).state;
+      }
+      const x = state.players[target].x - (expected === "head" ? 0 : (seat === 0 ? 1 : -1) * (attack === "low" ? 19 : 38));
+      state.projectiles = [{ id: 1, type: "fist", owner: seat, target, height: attack, startX: x, endX: x,
+        currentX: x, dir: seat === 0 ? 1 : -1, createdAt: state.simulationTimeMs, durationMs: 500 }];
+      inputs[target] = input;
+      const next = stepMatch(state, inputs);
+      const hit = next.events.find(e => e.type === "hit");
+      assert.equal(hit?.part, expected);
+      assert.deepEqual({ x: hit.x, y: hit.y }, next.state.players[target].partPositions[expected]);
+    }
+  }
+});
+
+test("a guard on its last tick shows the blocking arm at the impact point", () => {
+  for (const seat of [0, 1]) {
+    const fight = fightFrom(seat);
+    const punch = fight.step({ crouch: true, attackPressed: true }, { crouch: true, guardPressed: true });
+    assert.ok(punch.some(e => e.type === "attack"));
+    const guardArm = fight.target.guardArm;
+    const fist = fight.state.projectiles[0];
+    const position = fight.target.partPositions[guardArm];
+    fight.target.guardUntil = fight.state.simulationTimeMs + 1000 / 60;
+    fist.startX = fist.endX = fist.currentX = position.x;
+    const guard = fight.step({}, { crouch: true }).find(e => e.type === "guard");
+    assert.equal(guard?.part, guardArm);
+    assert.equal(fight.target.guardArm, guardArm);
+    assert.deepEqual({ x: guard.x, y: guard.y }, fight.target.partPositions[guardArm]);
+    fight.step();
+    assert.equal(fight.target.guardArm, null);
+  }
+});

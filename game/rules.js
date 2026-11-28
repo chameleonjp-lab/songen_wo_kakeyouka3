@@ -169,14 +169,20 @@ function updateTimers(fighter, timestamp) {
 function applyInput(state, fighter, input = {}, emit) {
   const timestamp = state.simulationTimeMs;
   const dir = Number(Boolean(input.right)) - Number(Boolean(input.left));
-  fighter.crouch = Boolean(input.crouch) && !isJumping(fighter, timestamp);
+  const wasJumping = isJumping(fighter, timestamp);
+  fighter.crouch = Boolean(input.crouch) && !wasJumping;
   if (dir) moveFighter(state, fighter, dir);
-  if (input.jumpPressed && !isJumping(fighter, timestamp) && brokenFeet(fighter) === 0) {
+  if (input.jumpPressed && !wasJumping && brokenFeet(fighter) === 0) {
     fighter.crouch = false;
     fighter.jumpUntil = timestamp + JUMP_MS;
     emit("jump", { seat: fighter.seat, x: fighter.x, y: fighter.y });
   }
-  if (input.attackPressed) startAttack(state, fighter, emit);
+  if (input.attackPressed) {
+    const jumping = input.jumpBeforeAttack === false ? wasJumping : isJumping(fighter, timestamp);
+    const crouching = input.attackCrouch ?? input.crouch;
+    const posture = jumping ? "jump" : crouching ? "crouch" : "stand";
+    startAttack(state, fighter, posture, emit);
+  }
   if (input.guardPressed && !isJumping(fighter, timestamp) && hasArm(fighter) && fighter.stamina >= 0.5) {
     fighter.stamina -= 0.5;
     fighter.guardUntil = timestamp + GUARD_MS;
@@ -245,7 +251,7 @@ function partHeight(part) {
   return "mid";
 }
 
-function startAttack(state, fighter, emit) {
+function startAttack(state, fighter, posture, emit) {
   const timestamp = state.simulationTimeMs;
   if (fighter.stamina < 1 || timestamp - fighter.lastAttackAt < ATTACK_COOLDOWN_MS || !hasArm(fighter)) return;
 
@@ -254,7 +260,6 @@ function startAttack(state, fighter, emit) {
   state.statsBySeat[fighter.seat].attacks += 1;
   const opponent = state.players[1 - fighter.seat];
   const dir = opponent.x > fighter.x ? 1 : -1;
-  const posture = postureOf(fighter, timestamp);
   const height = { jump: "high", crouch: "low", stand: "mid" }[posture];
   const startX = fighter.x + dir * FIST_START;
   const originY = state.stage.groundY + postureOffset[posture];
@@ -283,9 +288,8 @@ function nearPart(target, attacker, part) {
   return `${attacker.x < target.x ? "left" : "right"}${part}`;
 }
 
-function guardArmFor(target, attacker, timestamp, includeLastInstant = false) {
-  const guardExpired = includeLastInstant ? target.guardUntil < timestamp : target.guardUntil <= timestamp;
-  if (guardExpired || isJumping(target, timestamp)) return null;
+function guardArmFor(target, attacker, timestamp) {
+  if (!target.guardUntil || target.guardUntil < timestamp || isJumping(target, timestamp)) return null;
   const front = nearPart(target, attacker, "Arm");
   const back = OPPOSITE_PART[front];
   if (!target.parts[back].broken) return back;
@@ -419,7 +423,7 @@ function findImpact(state, projectile) {
   const attacker = state.players[projectile.owner];
   const target = state.players[projectile.target];
   const timestamp = state.simulationTimeMs;
-  const arm = target.guardStance === projectile.height && guardArmFor(target, attacker, timestamp, true);
+  const arm = target.guardStance === projectile.height && guardArmFor(target, attacker, timestamp);
   const guarded = Boolean(arm);
   const part = guarded ? arm : hitPart(target, attacker, projectile.height, timestamp);
   if (!part) return null;
@@ -429,7 +433,7 @@ function findImpact(state, projectile) {
     part,
     guarded,
     x: target.x + partOffset(target, attacker, part, timestamp),
-    y: heightY(target.y, guarded ? target.guardStance : partHeight(part)),
+    y: heightY(state.stage.groundY + postureOffset[postureOf(target, timestamp)], partHeight(part)),
   };
 }
 
