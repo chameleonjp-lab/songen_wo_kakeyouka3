@@ -122,12 +122,12 @@ function renderFighter(drawing, player, opponent, simulationTimeMs, final) {
   const backArmX = player.partPositions?.[backArm]?.x;
   const crouchingArmInFront = player.posture === "crouch" && broken("leftFoot") && broken("rightFoot") &&
     broken(frontArm) && !broken(backArm) && Number.isFinite(backArmX) && backArmX === player.partPositions[frontArm]?.x;
-  const guarding = !final && Boolean(player.guardArm);
+  const guarding = Boolean(player.guardArm);
   if (guarding || crouchingArmInFront) {
     shown[backArm] = "";
     shown[frontArm] = "💪";
   }
-  if (!final && !shown[`${front}Foot`] && shown[`${back}Foot`]) {
+  if (!shown[`${front}Foot`] && shown[`${back}Foot`]) {
     shown[`${front}Foot`] = shown[`${back}Foot`];
     shown[`${back}Foot`] = "";
   }

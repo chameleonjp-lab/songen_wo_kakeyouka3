@@ -826,3 +826,51 @@ test("a return request retries after reconnect and sends once per connection", a
   expect(authMatchIds).toEqual([sampleMatch, null]);
   expect(returningGenerations).toEqual([1, 2]);
 });
+
+test("crouched feet stay on the board and the last foot keeps its place in the result", async ({ page: host, browser, baseURL }) => {
+  await host.setViewportSize({ width: 402, height: 700 });
+  const code = await hostRoom(host, async () => {});
+  const guestContext = await browser.newContext({ baseURL, viewport: { width: 700, height: 402 }, isMobile: true, hasTouch: true });
+  try {
+    const guest = await guestContext.newPage();
+    await guest.goto(`./#room=${code}`);
+    await guest.locator("#join-button").click();
+    await guest.locator("#ready").click();
+    await host.locator("#ready").click();
+    await expect(view(host, "game")).toBeVisible();
+    const down = host.locator('[data-control="crouch"]');
+    await down.dispatchEvent("pointerdown", { pointerId: 45, button: 0, pointerType: "touch" });
+    for (const damage of [1, 2]) {
+      await host.locator('[data-control="attackPressed"]').tap();
+      await expect(part(guest, "game-board", 1, "leftFoot")).toHaveAttribute("data-damage", String(damage));
+      if (damage === 1) await host.waitForTimeout(650);
+    }
+    for (const page of [host, guest]) {
+      const foot = part(page, "game-board", 0, "rightFoot");
+      const geometry = await foot.evaluate(el => {
+        const box = el.getBoundingClientRect();
+        const root = el.closest(".fighter").getBoundingClientRect();
+        const scale = root.width / 132;
+        return {
+          x: (box.x + box.width / 2 - root.x - root.width / 2) / scale,
+          y: (box.y + box.height / 2 - root.y - root.height / 2) / scale,
+          inside: box.bottom <= el.closest(".board").getBoundingClientRect().bottom,
+        };
+      });
+      expect(geometry.x).toBeCloseTo(19, 1);
+      expect(geometry.y).toBeCloseTo(34, 1);
+      expect(geometry.inside).toBe(true);
+      await expect(part(page, "game-board", 1, "leftFoot")).toHaveText("🦵");
+      await expect(part(page, "game-board", 1, "rightFoot")).toBeEmpty();
+    }
+    await guest.locator("#forfeit").click();
+    await guest.locator("#confirm-forfeit").click();
+    for (const page of [host, guest]) {
+      await expect(view(page, "announcement")).toBeVisible();
+      await expect(part(page, "final-board", 1, "leftFoot")).toHaveText("🦵");
+      await expect(part(page, "final-board", 1, "rightFoot")).toBeEmpty();
+    }
+  } finally {
+    await guestContext.close();
+  }
+});

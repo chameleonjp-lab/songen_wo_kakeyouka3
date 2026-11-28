@@ -216,3 +216,32 @@ test('only a guest filling the empty seat can carry an earlier owner Ready into 
   assert.equal(room.setReady(1, host.generation, true, 11, nextPair), false);
   assert.equal(room.phase, 'waiting');
 });
+
+test('the first punch in a tick keeps its crouch and jump ordering while the fighter follows the latest controls', () => {
+  const cases = [
+    [[{ crouch: true, attackPressed: true }, {}], 'low', 'stand'],
+    [[{ attackPressed: true }, { crouch: true }], 'mid', 'crouch'],
+    [[{ crouch: true, attackPressed: true }, { attackPressed: true }], 'low', 'stand'],
+    [[{ attackPressed: true }, { jumpPressed: true }], 'mid', 'jump'],
+    [[{ jumpPressed: true }, { attackPressed: true }], 'high', 'jump'],
+    [[{ crouch: true, jumpPressed: true, attackPressed: true }], 'high', 'jump'],
+  ];
+  for (const [packets, lane, posture] of cases) {
+    const room = new RoomSession();
+    const matchId = '00000000-0000-4000-8000-000000000001';
+    const members = ['owner', 'guest'].map((name, seat) => {
+      room.register(seat ? 'join' : 'create', '0038', profile(name), 0);
+      return room.connect(name, null, 1);
+    });
+    members.forEach(({ generation }, seat) => room.setReady(seat, generation, true, 1));
+    assert.ok(room.start(matchId, 3001));
+    packets.forEach((buttons, index) => {
+      const input = { ...emptyInput(), ...buttons };
+      assert.ok(room.acceptInput(0, { matchId, generation: members[0].generation, seq: index + 1, input }, 3002 + index));
+    });
+    assert.equal(room.tick().filter(e => e.type === 'attack').length, 1);
+    assert.equal(room.data.engine.projectiles[0].height, lane);
+    assert.equal(room.data.engine.players[0].posture, posture);
+    assert.equal(room.tick().some(e => e.type === 'attack'), false);
+  }
+});
