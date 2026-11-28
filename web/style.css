@@ -280,6 +280,7 @@ legend { margin-bottom: 4px; }
 }
 .part { display: grid; place-items: center; }
 .part[data-part="heart"] { filter: drop-shadow(0 0 5px #ff646380); }
+.part[data-part="leftFoot"], .part[data-part="rightFoot"] { translate: -50% 0; }
 .part[data-guard="true"] { filter: drop-shadow(0 0 8px var(--accent)); transform: translateY(-1px) scale(1.1); }
 .part[data-front="true"] { filter: drop-shadow(0 0 4px #f7d66b66); transform: translateY(-2px) scale(1.08); }
 .fighter[data-posture="crouch"] .body-grid { transform: translateY(18px) scaleY(.92); }

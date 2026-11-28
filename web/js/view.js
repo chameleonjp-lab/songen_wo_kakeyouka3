@@ -117,9 +117,15 @@ function renderFighter(drawing, player, opponent, simulationTimeMs, final) {
     leftFoot: broken("leftFoot") ? "" : "🦵",
     rightFoot: broken("rightFoot") ? "" : "🦵"
   };
-  if (!final && player.guardArm) {
-    shown[`${back}Arm`] = "";
-    shown[`${front}Arm`] = "💪";
+  const frontArm = `${front}Arm`;
+  const backArm = `${back}Arm`;
+  const backArmX = player.partPositions?.[backArm]?.x;
+  const crouchingArmInFront = player.posture === "crouch" && broken("leftFoot") && broken("rightFoot") &&
+    broken(frontArm) && !broken(backArm) && Number.isFinite(backArmX) && backArmX === player.partPositions[frontArm]?.x;
+  const guarding = !final && Boolean(player.guardArm);
+  if (guarding || crouchingArmInFront) {
+    shown[backArm] = "";
+    shown[frontArm] = "💪";
   }
   if (!final && !shown[`${front}Foot`] && shown[`${back}Foot`]) {
     shown[`${front}Foot`] = shown[`${back}Foot`];
@@ -128,7 +134,7 @@ function renderFighter(drawing, player, opponent, simulationTimeMs, final) {
   for (const [part, node] of Object.entries(parts)) {
     data(node, "broken", broken(part));
     if (player.parts?.[part]) data(node, "damage", player.parts[part].damage);
-    data(node, "guard", !final && Boolean(player.guardArm) && part === `${front}Arm`);
+    data(node, "guard", guarding && part === frontArm);
     data(node, "front", !final && part === `${front}Foot`);
     text(node, shown[part]);
   }
