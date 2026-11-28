@@ -4,7 +4,8 @@ import { MAX_LISTED_ROOMS, isShortCode } from '../game/protocol.js';
 export const directoryStub = env => env.ENTRY_LIMIT.getByName('open-room-directory');
 
 export function openUntil(data, now) {
-  return isShortCode(data.code) && data.phase === 'waiting' && data.members.includes(null) && data.expiresAt > now
+  const owner = data.members.find(member => member && member.hash === data.ownerHash);
+  return owner?.seen != null && isShortCode(data.code) && data.phase === 'waiting' && data.members.includes(null) && data.expiresAt > now
     ? data.expiresAt : 0;
 }
 

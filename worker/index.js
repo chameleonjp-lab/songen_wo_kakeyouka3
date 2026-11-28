@@ -140,10 +140,11 @@ export default {
     const body = await readJSON(request);
     if (path?.[2] === 'leave') {
       if (body?.version !== VERSION) return reject('version', cors);
-      if (!isKey(body.seatKey) || (body.matchId != null && !isMatchId(body.matchId))) return reject('invalid', cors);
+      if (!isKey(body.seatKey) || (body.matchId != null && !isMatchId(body.matchId)) ||
+          (body.countdownAt != null && !Number.isSafeInteger(body.countdownAt))) return reject('invalid', cors);
       const response = await env.MATCH_ROOMS.getByName(code).fetch('https://room.internal/leave', {
         method: 'POST',
-        body: JSON.stringify({ hash: await digest('seat', body.seatKey), matchId: body.matchId }),
+        body: JSON.stringify({ hash: await digest('seat', body.seatKey), matchId: body.matchId, countdownAt: body.countdownAt }),
       });
       return reply(await response.json(), response.status, cors);
     }
@@ -262,7 +263,7 @@ export class MatchRoom {
         this.retryAt = Date.now();
       }
       // Reconcile an interrupted write or a waiting room saved before discovery existed.
-      if (stored && (stored.listing?.pending || (!stored.listing && openUntil(stored, Date.now())))) {
+      if (stored && (stored.listing?.pending || (stored.listing?.expiresAt ?? 0) !== openUntil(stored, Date.now()))) {
         this.listingRetryAt = Date.now();
         await this.schedule();
       }
@@ -298,15 +299,30 @@ export class MatchRoom {
         return new Response(null, { status: 101, webSocket: client });
       });
     }
-    const { code, profile, hash, matchId } = await request.json();
+    const { code, profile, hash, matchId, countdownAt } = await request.json();
     const action = new URL(request.url).pathname.slice(1);
     return this.run(async () => {
       const now = Date.now();
       await this.maintain(now);
       if (action === 'leave') {
-        const before = this.session.phase;
+        const room = this.session;
+        const leavingSeat = room.seatFor(hash);
+        let exitMatch = matchId;
+        const active = ['playing', 'paused'].includes(room.phase);
+        if (leavingSeat >= 0 && countdownAt != null && countdownAt === room.data.startedCountdownAt && room.matchId) {
+          exitMatch = room.matchId;
+          if (active) {
+            const previousPhase = room.phase;
+            if (!room.finishCountdownExit(leavingSeat, countdownAt, now)) return reject('conflict');
+            await this.transition(previousPhase, now);
+          }
+        } else if (active && matchId && matchId === room.matchId && leavingSeat >= 0) {
+          // The disconnected player chose home. Release the seat once the pause resolves.
+          return reject('conflict');
+        }
+        const before = room.phase;
         const memberHashes = this.session.data.members.map(member => member?.hash);
-        const seat = this.session.leaveByHash(hash, now, matchId);
+        const seat = room.leaveByHash(hash, now, exitMatch);
         if (seat === null) return matchId ? reply({ left: true }) : reject('credentials');
         if (this.session.phase === 'expired') this.closeCurrent('opponent_left', 1 - seat, memberHashes[1 - seat]);
         this.closeCurrent('disconnected', seat, hash);
@@ -616,6 +632,11 @@ export class MatchRoom {
     const data = this.session.data;
     const deadlines = Object.values(data.history).map(item => item.result.expiresAt);
     if (data.code && ['waiting', 'countdown'].includes(data.phase)) deadlines.push(data.expiresAt);
+    const presenceCheck = this.session.nextLobbyPresenceCheck();
+    if (Number.isFinite(presenceCheck)) deadlines.push(presenceCheck);
+    for (const member of data.members) {
+      if (member?.joinDeadline != null) deadlines.push(member.joinDeadline);
+    }
     if (this.retryAt !== null) deadlines.push(this.retryAt);
     if (this.listingRetryAt !== null) deadlines.push(this.listingRetryAt);
     for (const ws of this.ctx.getWebSockets('auth')) {
@@ -633,7 +654,9 @@ export class MatchRoom {
   async alarm() {
     const now = Date.now();
     const flush = await this.run(async () => {
+      if (this.session.nextLobbyPresenceCheck() <= now) await this.maintain(now);
       const phase = this.session.phase;
+      const layout = this.session.data.layout;
       const historyCount = Object.keys(this.session.data.history).length;
       this.session.prune(now);
       for (const ws of this.ctx.getWebSockets()) {
@@ -647,7 +670,7 @@ export class MatchRoom {
         (await this.ctx.storage.list({ prefix: RANKING_PREFIX, limit: 1 })).size > 0;
       const due = pending && (this.retryAt === null || this.retryAt <= now);
       this.retryAt = pending ? (due ? now + RETRY_MS : this.retryAt) : null;
-      if (phase !== this.session.phase) {
+      if (phase !== this.session.phase || layout !== this.session.data.layout) {
         await this.transition(phase, now);
       } else if (historyCount !== Object.keys(this.session.data.history).length || this.listingRetryAt !== null) {
         await this.commit();

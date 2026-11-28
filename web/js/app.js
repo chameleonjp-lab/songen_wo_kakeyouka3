@@ -1,7 +1,7 @@
 import "./audio.js";
 import { normalizeCode, isShortCode, emptyInput } from "../../game/protocol.js";
 import { applyLanguage, language, languages, setLanguage, t } from "./i18n.js";
-import { clearReservation, createMatchClient, leaveRoom, loadSession, queueRoomExit, readStorage, registerRoom, saveSession, writeStorage } from "./match-client.js";
+import { clearReservation, createMatchClient, loadSession, queueRoomExit, recoverPendingJoin, readStorage, registerRoom, saveSession, writeStorage } from "./match-client.js";
 import { $, FACES, createBoard, createPhoto, renderHud, renderPlayers, timeLeft } from "./view.js";
 import { createKeyboardSettings } from "./keyboard.js";
 import { createRoomList } from "./room-list.js";
@@ -36,7 +36,6 @@ let readyPending = false;
 let forfeitPending = false;
 let returnPending = false;
 let managePending = false;
-let leaving = false;
 let photoTimer;
 let registerStatus = "";
 let copyStatus = "";
@@ -169,10 +168,11 @@ function refreshLobby() {
   let message = null;
   if (ownLobbyStatus) message = ownLobbyStatus;
   else if (connectStatus !== "connected") message = connectStatus === "reconnecting" ? "reconnecting" : "connecting";
+  else if (room?.players[1 - seat]?.connected === false) message = "opponentOffline";
   else if (room?.phase !== "countdown") message = room?.players[1 - seat] ? "waitingReady" : "waiting";
   setStatus($("#lobby-status"), message, Boolean(ownLobbyStatus));
   $("#reload-lobby").hidden = connectStatus !== "reconnecting" && !["network", "disconnected", "version"].includes(ownLobbyStatus);
-  $("#ready").disabled = !client.connected || Boolean(readyPending || room?.players[seat]?.ready) || room?.phase !== "waiting";
+  $("#ready").disabled = !client.connected || room?.players[1 - seat]?.connected === false || Boolean(readyPending || room?.players[seat]?.ready) || room?.phase !== "waiting";
   const manages = ownsRoom() && isShortCode(session?.code);
   const waiting = room?.phase === "waiting";
   $("#owner-actions").hidden = !manages;
@@ -181,7 +181,7 @@ function refreshLobby() {
   $("#kick-guest").disabled = !canManage;
   $("#lobby-home").hidden = !ownsRoom() && client.connected;
   $("#leave-lobby").hidden = ownsRoom();
-  $("#leave-lobby").disabled = leaving || !client.connected || !["waiting", "countdown"].includes(room?.phase);
+  $("#leave-lobby").disabled = !client.connected || !["waiting", "countdown"].includes(room?.phase);
   updateLobbyClock();
 }
 
@@ -206,8 +206,9 @@ function refreshGame() {
   renderHud(lastSnapshot, session?.seat);
   for (const button of controlButtons) button.disabled = !client.canPlay || forfeitPending;
   $("#forfeit").disabled = !client.connected || forfeitPending || !room?.matchId;
-  $("#forfeit").hidden = connectStatus === "failed";
-  $("#disconnected-home").hidden = connectStatus !== "failed";
+  const canExit = connectStatus === "failed" || connectStatus === "reconnecting";
+  $("#forfeit").hidden = canExit;
+  $("#disconnected-home").hidden = !canExit;
   updateGameClock();
 }
 
@@ -253,11 +254,12 @@ function saveJoinCode(value) {
 }
 
 function goHome({ target = "home", leave = true } = {}) {
-  if (shown === "game" && connectStatus !== "failed") return;
+  if (shown === "game" && !["failed", "reconnecting"].includes(connectStatus)) return;
   registrationAttempt++;
   busy = false;
-  const leavingRoom = leave && ["register", "lobby", "score"].includes(shown);
-  if (leavingRoom && session) queueRoomExit(session);
+  if (leave && session) {
+    queueRoomExit({ ...session, countdownAt: room?.phase === "countdown" ? room.startAt : undefined });
+  }
   if (registrationPending) {
     const { reservation, request } = registrationPending;
     queueRoomExit(reservation, request.catch(() => null));
@@ -275,7 +277,6 @@ function goHome({ target = "home", leave = true } = {}) {
   returnPending = false;
   saveSession(null);
   managePending = false;
-  leaving = false;
   showScreen(target);
 }
 
@@ -327,6 +328,10 @@ async function register(kind, listedCode) {
   } catch (error) {
     if (attempt !== registrationAttempt) return;
     registerStatus = error instanceof TypeError || error.name === "AbortError" ? "network" : error.message;
+    if (registerStatus === "network" && registrationPending?.reservation) {
+      queueRoomExit(registrationPending.reservation);
+      clearReservation(registrationPending.reservation.seatKey);
+    }
     if (listedCode && ["full", "expired"].includes(registerStatus)) roomList.remove(listedCode);
   } finally {
     if (attempt === registrationAttempt) {
@@ -408,6 +413,8 @@ function showError(code) {
   const roomClosed = ["kicked", "opponent_left", "expired", "credentials"].includes(code);
   if (session && roomClosed) {
     if (result && ["announcement", "score"].includes(shown)) {
+      // Only an explicit return can distinguish an expired result from a reopened room.
+      if (code === "expired" && !returnPending && isShortCode(session.code)) return;
       session.returnUnavailable = true;
     } else if (shown === "lobby" || (shown === "register" && ownsRoom())) {
       registerStatus = key;
@@ -622,23 +629,10 @@ for (const [selector, type] of [["#swap-seats", "swapSeats"], ["#kick-guest", "k
   });
 }
 
-$("#leave-lobby").addEventListener("click", async () => {
-  if (!session || ownsRoom() || leaving) return;
-  const reservation = session;
-  leaving = true;
-  refreshLobby();
-  try {
-    await leaveRoom(reservation);
-    if (session !== reservation || shown !== "lobby") return;
-    registerStatus = "";
-    goHome({ target: "register", leave: false });
-  } catch {
-    if (session === reservation) {
-      leaving = false;
-      ownLobbyStatus = "network";
-      refreshLobby();
-    }
-  }
+$("#leave-lobby").addEventListener("click", () => {
+  if (!session || ownsRoom()) return;
+  registerStatus = "";
+  goHome({ target: "register" });
 });
 
 $("#forfeit").addEventListener("click", () => {
@@ -665,12 +659,8 @@ $("#show-score").addEventListener("click", () => {
 });
 $("#return-to-room").addEventListener("click", () => {
   if (!canReturnToLobby() || !result) return;
-  if (Number.isFinite(result.expiresAt) && result.expiresAt <= Date.now() + roomClockOffset) {
-    scoreStatus = "expired";
-  } else {
-    returnPending = client.returnToRoom();
-    scoreStatus = returnPending ? "connecting" : "network";
-  }
+  returnPending = client.returnToRoom();
+  scoreStatus = returnPending ? "connecting" : "network";
   saveSession(session);
   refreshDynamic();
 });
@@ -731,5 +721,6 @@ setInterval(() => {
   updateGameClock();
 }, 150);
 window.addEventListener("online", () => queueRoomExit());
+recoverPendingJoin();
 start();
 queueRoomExit();

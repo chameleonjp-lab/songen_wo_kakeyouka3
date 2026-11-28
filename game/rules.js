@@ -125,7 +125,7 @@ export function stepMatch(previous, inputs = []) {
   if (state.final) {
     state.statsBySeat = state.final.statsBySeat;
   } else {
-    const elapsedSec = Math.floor(timestamp / 1000);
+    const elapsedSec = Math.floor(tick / TICKS_PER_SECOND);
     for (const stats of state.statsBySeat) {
       stats.elapsedSec = elapsedSec;
       stats.score = totalMatchScore(stats, false, elapsedSec);
@@ -148,7 +148,7 @@ export function totalMatchScore(stats, won, elapsedSec) {
 
 export function resolveMatch(state, reason, outcomeBySeat) {
   if (state.final) return state.final;
-  const elapsedSec = clamp(Math.ceil(state.simulationTimeMs / 1000), 0, MATCH_DURATION_SEC);
+  const elapsedSec = clamp(Math.ceil(state.tick / TICKS_PER_SECOND), 0, MATCH_DURATION_SEC);
   const scoreBySeat = state.statsBySeat.map((stats, seat) => {
     const outcome = outcomeBySeat[seat];
     return reason === "interrupted" || outcome === "interrupted" ? null : totalMatchScore(stats, outcome === "win", elapsedSec);
@@ -226,6 +226,8 @@ function isJumping(fighter, timestamp) {
   return fighter.jumpUntil > timestamp;
 }
 
+const postureOffset = { stand: 0, crouch: 10, jump: -38 };
+
 function postureOf(fighter, timestamp) {
   if (isJumping(fighter, timestamp)) return "jump";
   return fighter.crouch ? "crouch" : "stand";
@@ -255,8 +257,7 @@ function startAttack(state, fighter, emit) {
   const posture = postureOf(fighter, timestamp);
   const height = { jump: "high", crouch: "low", stand: "mid" }[posture];
   const startX = fighter.x + dir * FIST_START;
-  // The original resolves horizontal hits before repainting each fighter's vertical pose.
-  const y = heightY(fighter.y, height === "high" ? "mid" : height);
+  const y = height === "high" ? state.stage.groundY + postureOffset.jump : heightY(fighter.y, height);
   const id = state.nextProjectileId++;
   state.projectiles.push({
     id,
@@ -306,7 +307,7 @@ function updatePositions(state) {
     const timestamp = state.simulationTimeMs;
     const opponent = state.players[1 - fighter.seat];
     fighter.posture = postureOf(fighter, timestamp);
-    fighter.y = state.stage.groundY + { stand: 0, crouch: 10, jump: -38 }[fighter.posture];
+    fighter.y = state.stage.groundY + postureOffset[fighter.posture];
     fighter.guardArm = guardArmFor(fighter, opponent, timestamp);
     fighter.partPositions = Object.fromEntries(Object.keys(PART_OFFSET).map((part) => [
       part,

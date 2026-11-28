@@ -96,7 +96,7 @@ export async function registerRoom(kind, { code, name, faceId, onReserve }) {
     const room = await response.json().catch(() => null);
     if (!response.ok || !normalizeCode(room?.code) || ![0, 1].includes(room?.seat)) {
       const reason = room?.code ?? "network";
-      if (reason === "conflict" || reason === "expired") clearReservation(seatKey);
+      if ((kind === "join" && room && response.status >= 400 && response.status < 500) || reason === "conflict" || reason === "expired") clearReservation(seatKey);
       throw new Error(reason);
     }
     if (kind === "create" && !isShortCode(room.code)) {
@@ -114,13 +114,13 @@ export async function registerRoom(kind, { code, name, faceId, onReserve }) {
 export async function leaveRoom(reservation) {
   if (!endpoint || !reservation) return;
   const url = serverUrl(`/v1/rooms/${reservation.code}/leave`);
-  const { seatKey, matchId } = reservation;
-  const body = JSON.stringify({ seatKey, version: VERSION, matchId: matchId ?? undefined });
+  const { seatKey, matchId, countdownAt } = reservation;
+  const body = JSON.stringify({ seatKey, version: VERSION, matchId: matchId ?? undefined, countdownAt });
   const response = await fetch(url, {
     method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true,
     signal: AbortSignal.timeout(8000)
   });
-  if (!response.ok && response.status !== 403) throw new Error("network");
+  if (!response.ok && ![400, 403, 404, 410].includes(response.status)) throw new Error("network");
 }
 
 function pendingRoomExits() {
@@ -131,11 +131,13 @@ function pendingRoomExits() {
 
 let roomExits = pendingRoomExits();
 let exitQueue = Promise.resolve();
+let exitTimer;
+let exitDelay = 1000;
 
 function rememberRoomExit(reservation) {
   const { code, seatKey, matchId } = reservation;
   if (roomExits.some(exit => exit.seatKey === seatKey)) return;
-  roomExits.push({ code, seatKey, matchId });
+  roomExits.push({ code, seatKey, matchId, countdownAt: reservation.countdownAt });
   saveSessionObject(ROOM_EXITS_KEY, roomExits);
 }
 
@@ -150,8 +152,22 @@ export function queueRoomExit(reservation, pendingRequest = null) {
     const released = new Set(attempted.filter((_, index) => results[index].status === "fulfilled"));
     roomExits = roomExits.filter(exit => !released.has(exit));
     saveSessionObject(ROOM_EXITS_KEY, roomExits.length ? roomExits : null);
+    clearTimeout(exitTimer);
+    if (roomExits.length) {
+      exitTimer = setTimeout(() => queueRoomExit(), exitDelay);
+      exitDelay = Math.min(exitDelay * 2, 15000);
+    } else exitDelay = 1000;
   });
   return exitQueue;
+}
+
+export function recoverPendingJoin() {
+  const saved = readSessionObject(RESERVATION_STORAGE_KEY);
+  const match = typeof saved?.route === "string" && /^\/v1\/rooms\/([^/]+)\/join$/.exec(saved.route);
+  const code = normalizeCode(match?.[1]);
+  if (!code || !isKey(saved.seatKey)) return;
+  queueRoomExit({ code, seatKey: saved.seatKey });
+  clearReservation(saved.seatKey);
 }
 
 export function loadSession() {

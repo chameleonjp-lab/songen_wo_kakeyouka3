@@ -350,9 +350,15 @@ test("leaving a score releases the seat and kicking a seat preserves the other s
     }
 
     await playToScore();
+    let leaveAttempts = 0;
+    await guest.route(`**/v1/rooms/${code}/leave`, route => {
+      if (++leaveAttempts === 1) return route.abort("failed");
+      return route.continue();
+    });
     await view(guest, "score").locator("[data-home]").click();
     await host.locator("#return-to-room").click();
     await expect(host.locator("#lobby-players [data-seat='1']")).toHaveAttribute("data-present", "false");
+    expect(leaveAttempts).toBeGreaterThanOrEqual(2);
     await guest.locator("#prepare").click();
     await guest.locator("#join-button").click();
     await playToScore();
@@ -372,6 +378,105 @@ test("leaving a score releases the seat and kicking a seat preserves the other s
   } finally {
     await context.close();
   }
+});
+
+test("a lost join reply releases the seat without the host removing anyone", async ({ page: host, browser, baseURL }) => {
+  const code = await hostRoom(host, async () => {});
+  const guest = await browser.newPage({ baseURL, locale: "ja-JP" });
+  try {
+    await guest.goto(`./#room=${code}`);
+    await guest.route(`**/v1/rooms/${code}/join`, async route => {
+      expect((await route.fetch()).status()).toBe(200);
+      await route.abort("failed");
+    }, { times: 1 });
+    await guest.locator("#join-button").click();
+    await expect(guest.locator("#register-status")).toContainText(/通信|接続/);
+    await view(guest, "register").locator("[data-home]").click();
+    await expect(host.locator("#lobby-players [data-present=true]")).toHaveCount(1);
+    await guest.locator("#prepare").click();
+    await guest.locator("#join-button").click();
+    await expect(view(guest, "lobby")).toBeVisible();
+  } finally { await guest.close(); }
+});
+
+test("leaving in the final countdown second still interrupts a match if the request arrives after start", async ({ page: host, browser, baseURL }) => {
+  const code = await hostRoom(host, async () => {});
+  const guest = await browser.newPage({ baseURL, locale: "ja-JP" });
+  let deliver;
+  const release = new Promise(resolve => { deliver = resolve; });
+  try {
+    await guest.goto(`./#room=${code}`);
+    await guest.locator("#join-button").click();
+    await expect(guest.locator("#ready")).toBeEnabled();
+    // Keep both connections open until the server has started the round.
+    await guest.evaluate(() => {
+      const close = WebSocket.prototype.close;
+      WebSocket.prototype.close = function (...args) {
+        setTimeout(() => close.apply(this, args), 4500);
+      };
+    });
+    await guest.route(`**/v1/rooms/${code}/leave`, async route => {
+      await release;
+      await route.continue();
+    });
+    await host.locator("#ready").click();
+    await guest.locator("#ready").click();
+    await expect(guest.locator("#countdown")).toHaveText("1");
+    await guest.locator("#leave-lobby").click();
+    await expect(view(guest, "register")).toBeVisible();
+    await expect(view(host, "game")).toBeVisible();
+    deliver();
+    await host.locator("#show-score").click();
+    await expect(host.locator("#score-value")).toHaveText("—");
+    await host.locator("#return-to-room").click();
+    await expect(host.locator("#lobby-players [data-present=true]")).toHaveCount(1);
+  } finally { deliver(); await guest.close(); }
+});
+
+test("an offline host disappears from the list and an invited guest sees when the host returns", async ({ page: host, browser, baseURL }) => {
+  const code = await hostRoom(host, async () => {});
+  const guest = await browser.newPage({ baseURL, locale: "ja-JP" });
+  try {
+    await guest.goto("./");
+    await guest.locator("#prepare").click();
+    const listing = guest.locator(`#room-list button[value="${code}"]`);
+    await expect(listing).toBeVisible();
+    await host.context().setOffline(true);
+    await expect(async () => {
+      const loaded = guest.waitForResponse(response => response.url().endsWith("/v1/rooms") && response.request().method() === "GET");
+      await guest.locator("#refresh-rooms").click();
+      await loaded;
+      await expect(listing).toHaveCount(0, { timeout: 700 });
+    }).toPass({ timeout: 20000 });
+    await guest.locator("#join-code").fill(code);
+    await guest.locator("#join-button").click();
+    await expect(guest.locator("#lobby-status")).toContainText("相手の接続が切れました");
+    await expect(guest.locator("#ready")).toBeDisabled();
+    await host.context().setOffline(false);
+    await expect(guest.locator("#ready")).toBeEnabled();
+  } finally { await guest.close(); }
+});
+
+test("an offline guest can choose home and the interrupted round frees their seat when reconnected", async ({ page: host, browser, baseURL }) => {
+  const code = await hostRoom(host, async () => {});
+  const guest = await browser.newPage({ baseURL, locale: "ja-JP" });
+  try {
+    await guest.goto(`./#room=${code}`);
+    await guest.locator("#join-button").click();
+    await host.locator("#ready").click();
+    await guest.locator("#ready").click();
+    await expect(view(guest, "game")).toBeVisible();
+    await guest.context().setOffline(true);
+    await guest.locator("#disconnected-home").click();
+    await expect(view(guest, "home")).toBeVisible();
+    await guest.context().setOffline(false);
+    await expect(view(host, "announcement")).toBeVisible({ timeout: 20000 });
+    await host.locator("#show-score").click();
+    await expect(host.locator("#score-value")).toHaveText("—");
+    await host.locator("#return-to-room").click();
+    await expect(host.locator("#lobby-players [data-present=true]")).toHaveCount(1, { timeout: 20000 });
+    await expect(view(guest, "home")).toBeVisible();
+  } finally { await guest.close(); }
 });
 
 test("the home share button stays visible below the ranking and opens the X composer", async ({ page, context }) => {

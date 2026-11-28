@@ -11,6 +11,8 @@ import { createMatch, resolveMatch, stepMatch, toSnapshot } from '../game/rules.
 
 const edges = ['jumpPressed', 'attackPressed', 'guardPressed'];
 const seats = [0, 1];
+const JOIN_CONFIRMATION_MS = 30_000;
+const LOBBY_HEARTBEAT_TIMEOUT_MS = 15_000;
 
 function initialData() {
   return {
@@ -38,7 +40,7 @@ function makeControl() {
 }
 
 function newMember(profile) {
-  return { ...profile, seen: null, ready: false };
+  return { ...profile, seen: null, ready: false, previousMatch: null };
 }
 
 export class RoomSession {
@@ -46,6 +48,15 @@ export class RoomSession {
     this.data = data;
     this.data.ownerHash ??= data.members[0]?.hash ?? null;
     this.data.layout ??= 0;
+    // Reopened rooms written by older versions did not store the previous match per seat.
+    if (data.phase === 'waiting' && data.returningFrom) {
+      const saved = data.history[data.returningFrom];
+      for (const member of data.members) {
+        if (member && member.previousMatch === undefined && (!saved || saved.memberHashes.includes(member.hash))) {
+          member.previousMatch = data.returningFrom;
+        }
+      }
+    }
     this.rankingsPublic = rankingsPublic;
     this.controls = [makeControl(), makeControl()];
     this.events = [];
@@ -85,7 +96,7 @@ export class RoomSession {
     if (seat >= 0) return this.isOwner(seat) ? { error: 'credentials' } : this.registration(seat);
     const openSeat = this.data.members.indexOf(null);
     if (openSeat < 0 || this.phase !== 'waiting') return { error: 'full' };
-    this.data.members[openSeat] = newMember(profile);
+    this.data.members[openSeat] = { ...newMember(profile), joinDeadline: now + JOIN_CONFIRMATION_MS };
     this.data.layout++;
     return this.registration(openSeat);
   }
@@ -119,6 +130,7 @@ export class RoomSession {
     }
     if (seat < 0) return { error: this.data.code ? 'credentials' : 'expired' };
     const generation = ++this.data.generations[seat];
+    delete this.data.members[seat].joinDeadline;
     this.data.members[seat].seen = now;
     this.controls[seat] = makeControl();
     return { seat, generation };
@@ -151,7 +163,10 @@ export class RoomSession {
   }
 
   heartbeat(seat, generation, matchId, now) {
-    if (!this.isCurrent(seat, generation) || this.matchId !== matchId) return false;
+    if (!this.isCurrent(seat, generation)) return false;
+    const readingResult = this.phase === 'waiting' && matchId && this.data.members[seat].previousMatch === matchId;
+    if (this.matchId !== matchId && !readingResult) return false;
+    if (matchId && matchId === this.matchId) this.data.members[seat].confirmedMatchId = matchId;
     this.data.members[seat].seen = now;
     return true;
   }
@@ -241,15 +256,23 @@ export class RoomSession {
     return hash;
   }
 
+  nextLobbyPresenceCheck() {
+    if (this.phase !== 'waiting') return Infinity;
+    const deadlines = this.data.members.filter(member => member?.seen != null)
+      .map(member => member.seen + LOBBY_HEARTBEAT_TIMEOUT_MS);
+    return Math.min(...deadlines);
+  }
+
   advancePresence(now) {
     if (this.isLobbyExpired(now)) {
       this.expire();
       return;
     }
-    if (!['countdown', 'playing', 'paused'].includes(this.phase)) return;
+    if (!['waiting', 'countdown', 'playing', 'paused'].includes(this.phase)) return;
+    const timeout = this.phase === 'waiting' ? LOBBY_HEARTBEAT_TIMEOUT_MS : HEARTBEAT_TIMEOUT_MS;
     for (const seat of seats) {
       const seen = this.data.members[seat]?.seen;
-      if (seen != null && now - seen >= HEARTBEAT_TIMEOUT_MS) {
+      if (seen != null && now - seen >= timeout) {
         this.disconnect(seat, this.data.generations[seat], now);
       }
     }
@@ -266,6 +289,7 @@ export class RoomSession {
   start(matchId, now) {
     if (this.phase !== 'countdown' || now < this.startAt || this.isLobbyExpired(now)) return false;
     this.data.phase = 'playing';
+    this.data.startedCountdownAt = this.startAt;
     this.data.startAt = null;
     this.data.startedAt = now;
     this.data.rankMatch = this.rankingsPublic;
@@ -284,6 +308,7 @@ export class RoomSession {
     const control = this.controls[seat];
     if (seq <= control.received) return false;
     this.data.members[seat].seen = now;
+    this.data.members[seat].confirmedMatchId = matchId;
     control.received = seq;
     control.latest = input;
     for (const edge of edges) control.pending[edge] ||= input[edge];
@@ -350,6 +375,13 @@ export class RoomSession {
     return true;
   }
 
+  finishCountdownExit(seat, countdownAt, now) {
+    const member = this.data.members[seat];
+    if (!member || countdownAt == null || countdownAt !== this.data.startedCountdownAt ||
+        now - this.data.startedAt > PAUSE_BUDGET_MS || member.confirmedMatchId === this.matchId) return false;
+    return this.finishOnce(this.matchId, 'interrupted', ['interrupted', 'interrupted'], now);
+  }
+
   forfeit(seat, generation, matchId, now) {
     if (!this.isCurrent(seat, generation)) return false;
     const outcome = seat === 0 ? ['loss', 'win'] : ['win', 'loss'];
@@ -360,10 +392,12 @@ export class RoomSession {
     const member = this.data.members[seat];
     const bothCanReturn = isShortCode(this.data.code);
     if (!member || (!bothCanReturn && !this.isOwner(seat))) return false;
+    if (bothCanReturn && this.phase === 'waiting' && this.data.returningFrom === matchId && !this.isLobbyExpired(now)) {
+      return member.previousMatch === matchId;
+    }
     const saved = this.data.history[matchId];
     if (!saved || saved.result.expiresAt <= now || !saved.memberHashes.includes(member.hash)) return false;
-    return (this.phase === 'finished' && matchId === this.matchId) ||
-      (bothCanReturn && this.phase === 'waiting' && matchId === this.data.returningFrom);
+    return this.phase === 'finished' && matchId === this.matchId;
   }
 
   returnToRoom(seat, generation, matchId, now) {
@@ -378,7 +412,12 @@ export class RoomSession {
     this.data.returningFrom = matchId;
     this.data.pauseRemaining = PAUSE_BUDGET_MS;
     if (!bothCanReturn) this.data.members[1 - seat] = null;
-    this.data.members.forEach(member => { if (member) member.ready = false; });
+    for (const member of this.data.members) {
+      if (member) {
+        member.ready = false;
+        member.previousMatch = matchId;
+      }
+    }
     this.data.layout++;
     this.controls = [makeControl(), makeControl()];
     return true;
@@ -391,6 +430,9 @@ export class RoomSession {
   }
 
   prune(now) {
+    for (const member of this.data.members) {
+      if (member?.joinDeadline != null && now >= member.joinDeadline) this.leaveByHash(member.hash, now);
+    }
     for (const [id, { result }] of Object.entries(this.data.history)) {
       if (now >= result.expiresAt) delete this.data.history[id];
     }

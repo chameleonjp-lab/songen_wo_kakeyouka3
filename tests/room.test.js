@@ -159,3 +159,36 @@ test('reusing a room number gives the next match the full pause budget', () => {
   room.disconnect(1, guest.generation, now + 3100);
   assert.equal(room.pauseDeadline, now + 3100 + PAUSE_BUDGET_MS);
 });
+
+test('only unconfirmed guests lose their reservation if a registration reply never arrives', () => {
+  const room = new RoomSession();
+  room.register('create', '0038', profile('owner'), 0);
+  room.register('join', '0038', profile('guest'), 1);
+  const deadline = room.data.members[1].joinDeadline;
+  room.prune(deadline);
+  assert.equal(room.seatFor('guest'), -1);
+  room.register('join', '0038', profile('next'), deadline);
+  room.connect('next', null, deadline + 1);
+  room.prune(deadline * 2);
+  assert.equal(room.seatFor('next'), 1);
+});
+
+test('both roles can rejoin their reopened room after result history expires', () => {
+  for (const first of [0, 1]) {
+    const room = new RoomSession();
+    const match = '10000000-0000-4000-8000-000000000001';
+    const members = ['owner', 'guest'].map((name, seat) => {
+      room.register(seat ? 'join' : 'create', '0038', profile(name), 0);
+      return room.connect(name, null, 1);
+    });
+    members.forEach(({ generation }, seat) => room.setReady(seat, generation, true, 1));
+    room.start(match, 3001);
+    room.forfeit(0, members[0].generation, match, 3002);
+    const expires = room.result(match).expiresAt;
+    assert.ok(room.returnToRoom(first, members[first].generation, match, 3010));
+    room.prune(expires);
+    assert.equal(room.result(match), null);
+    assert.ok(room.returnToRoom(1 - first, members[1 - first].generation, match, expires + 1));
+    assert.equal(room.canReturnToRoom(first, match, room.data.expiresAt), false);
+  }
+});
