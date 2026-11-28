@@ -457,26 +457,48 @@ test("an offline host disappears from the list and an invited guest sees when th
   } finally { await guest.close(); }
 });
 
-test("an offline guest can choose home and the interrupted round frees their seat when reconnected", async ({ page: host, browser, baseURL }) => {
+test("both ready once across a delayed join and an offline exit survives closing the guest tab", async ({ page: host, browser, baseURL }) => {
+  let delayHost = false;
+  const delayed = [];
+  await host.routeWebSocket("**/v1/rooms/*/socket", client => {
+    const server = client.connectToServer();
+    server.onMessage(message => {
+      if (delayHost) delayed.push(() => client.send(message));
+      else client.send(message);
+    });
+  });
   const code = await hostRoom(host, async () => {});
-  const guest = await browser.newPage({ baseURL, locale: "ja-JP" });
+  const context = await browser.newContext({ baseURL, locale: "ja-JP" });
   try {
+    const guest = await context.newPage();
     await guest.goto(`./#room=${code}`);
+    delayHost = true;
     await guest.locator("#join-button").click();
+    await expect(guest.locator("#ready")).toBeEnabled();
+    await expect(host.locator("#lobby-players [data-present=true]")).toHaveCount(1);
     await host.locator("#ready").click();
     await guest.locator("#ready").click();
-    await expect(view(guest, "game")).toBeVisible();
-    await guest.context().setOffline(true);
+    delayHost = false;
+    for (const deliver of delayed) deliver();
+    await expect(view(guest, "game")).toBeVisible({ timeout: 10000 });
+
+    await context.setOffline(true);
     await guest.locator("#disconnected-home").click();
     await expect(view(guest, "home")).toBeVisible();
-    await guest.context().setOffline(false);
+    await guest.close();
+    await context.setOffline(false);
     await expect(view(host, "announcement")).toBeVisible({ timeout: 20000 });
     await host.locator("#show-score").click();
     await expect(host.locator("#score-value")).toHaveText("—");
     await host.locator("#return-to-room").click();
-    await expect(host.locator("#lobby-players [data-present=true]")).toHaveCount(1, { timeout: 20000 });
-    await expect(view(guest, "home")).toBeVisible();
-  } finally { await guest.close(); }
+    await expect(view(host, "lobby")).toBeVisible();
+
+    const next = await context.newPage();
+    await next.goto(`./#room=${code}`);
+    await next.locator("#join-button").click();
+    await expect(view(next, "lobby")).toBeVisible();
+    await expect(next.locator("#ready")).toBeEnabled();
+  } finally { await context.close(); }
 });
 
 test("the home share button stays visible below the ranking and opens the X composer", async ({ page, context }) => {

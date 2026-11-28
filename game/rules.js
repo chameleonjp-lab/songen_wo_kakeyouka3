@@ -257,7 +257,8 @@ function startAttack(state, fighter, emit) {
   const posture = postureOf(fighter, timestamp);
   const height = { jump: "high", crouch: "low", stand: "mid" }[posture];
   const startX = fighter.x + dir * FIST_START;
-  const y = height === "high" ? state.stage.groundY + postureOffset.jump : heightY(fighter.y, height);
+  const originY = state.stage.groundY + postureOffset[posture];
+  const y = height === "low" ? heightY(originY, "low") : originY;
   const id = state.nextProjectileId++;
   state.projectiles.push({
     id,

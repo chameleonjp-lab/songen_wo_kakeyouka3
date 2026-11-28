@@ -55,8 +55,8 @@ function compareObservation(state, original, tick) {
     y: tidy(projectile.y),
   })), original.projectiles.map(projectile => ({
     ...projectile,
-    // Online draws a jumping punch at its actual launch height, even on the jump tick.
-    y: projectile.height === "high" ? fixture.stage.groundY - 38 : projectile.y,
+    // The online game uses the pose at launch, including the first tick after a pose change.
+    y: { high: fixture.stage.groundY - 38, mid: fixture.stage.hitY.mid, low: fixture.stage.hitY.low + 10 }[projectile.height],
   })));
 
   if (!original.final) {
@@ -188,5 +188,28 @@ test("charges each elapsed second exactly once at all 180 whole-second boundarie
     const result = resolveMatch(state, "forfeit", ["win", "loss"]);
     assert.equal(result.elapsedSec, expected);
     assert.equal(result.scoreBySeat[1], -10 * expected);
+  }
+});
+
+test("launches the fist from the current pose on landing, crouching and standing up", () => {
+  for (const seat of [0, 1]) {
+    function act(state, input) {
+      const inputs = [{}, {}];
+      inputs[seat] = input;
+      return stepMatch(state, inputs).state;
+    }
+    let airborne = act(start(), { jumpPressed: true });
+    while (act(airborne, {}).players[seat].posture === "jump") airborne = act(airborne, {});
+    const starts = [
+      [airborne, { attackPressed: true }, "stand", "mid", "heart"],
+      [start(), { crouch: true, attackPressed: true }, "crouch", "low", "leftFoot"],
+      [act(start(), { crouch: true }), { attackPressed: true }, "stand", "mid", "heart"],
+    ];
+    for (const [state, input, posture, height, origin] of starts) {
+      const shot = act(state, input);
+      assert.equal(shot.players[seat].posture, posture);
+      assert.equal(shot.projectiles[0].height, height);
+      assert.equal(shot.projectiles[0].y, shot.players[seat].partPositions[origin].y);
+    }
   }
 });

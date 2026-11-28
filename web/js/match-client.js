@@ -1,6 +1,6 @@
 import {
   AUTH_TIMEOUT_MS, HEARTBEAT_TIMEOUT_MS, MAX_LISTED_ROOMS, PAUSE_BUDGET_MS, RESULT_LIFETIME_MS, ROOM_CODE_DIGITS, VERSION,
-  isKey, isMatchId, isShortCode, normalizeCode
+  digest, isExitToken, isKey, isMatchId, isShortCode, normalizeCode
 } from "../../game/protocol.js";
 
 const SESSION_STORAGE_KEY = "songen3_active_room";
@@ -13,6 +13,13 @@ const matchPhases = new Set(["playing", "paused"]);
 const fatalErrors = new Set(["expired", "credentials", "version", "opponent_left", "kicked"]);
 const endpoint = import.meta.env.VITE_MATCH_SERVER_URL?.trim() ||
   (import.meta.env.DEV ? "http://127.0.0.1:8787" : "");
+
+const exitPrefix = `songen3_room_exit:${endpoint}:`;
+
+export async function exitTokenForSeat(seatKey) {
+  if (!globalThis.crypto?.subtle) return undefined;
+  return digest("room-exit", await digest("seat", seatKey));
+}
 
 export function readStorage(key, storageName = "localStorage") {
   try { return window[storageName].getItem(key); } catch { return null; }
@@ -105,7 +112,8 @@ export async function registerRoom(kind, { code, name, faceId, onReserve }) {
       throw new Error("version");
     }
     clearReservation(seatKey);
-    return { ...room, owner: room.owner ?? kind === "create", seatKey, matchId: null, screen: kind === "create" ? "register" : "lobby" };
+    const exitToken = isExitToken(room.exitToken) ? room.exitToken : await exitTokenForSeat(seatKey);
+    return { ...room, owner: room.owner ?? kind === "create", seatKey, exitToken, matchId: null, screen: kind === "create" ? "register" : "lobby" };
   } finally {
     clearTimeout(timeout);
   }
@@ -114,8 +122,8 @@ export async function registerRoom(kind, { code, name, faceId, onReserve }) {
 export async function leaveRoom(reservation) {
   if (!endpoint || !reservation) return;
   const url = serverUrl(`/v1/rooms/${reservation.code}/leave`);
-  const { seatKey, matchId, countdownAt } = reservation;
-  const body = JSON.stringify({ seatKey, version: VERSION, matchId: matchId ?? undefined, countdownAt });
+  const { seatKey, exitToken, matchId, countdownAt } = reservation;
+  const body = JSON.stringify({ seatKey, exitToken: seatKey ? undefined : exitToken, version: VERSION, matchId: matchId ?? undefined, countdownAt });
   const response = await fetch(url, {
     method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true,
     signal: AbortSignal.timeout(8000)
@@ -129,15 +137,35 @@ function pendingRoomExits() {
     (exit.matchId == null || isMatchId(exit.matchId))) : [];
 }
 
+function sharedRoomExits() {
+  const exits = [];
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith(exitPrefix)) continue;
+      const exitToken = key.slice(exitPrefix.length);
+      if (!isExitToken(exitToken)) continue;
+      let exit;
+      try { exit = JSON.parse(readStorage(key)); } catch { continue; }
+      if (normalizeCode(exit?.code) && (exit.matchId == null || isMatchId(exit.matchId))) {
+        exits.push({ code: exit.code, matchId: exit.matchId, countdownAt: exit.countdownAt, exitToken });
+      }
+    }
+  } catch { /* The tab still has its own queue if shared storage is unavailable. */ }
+  return exits;
+}
+
 let roomExits = pendingRoomExits();
 let exitQueue = Promise.resolve();
 let exitTimer;
 let exitDelay = 1000;
 
 function rememberRoomExit(reservation) {
-  const { code, seatKey, matchId } = reservation;
-  if (roomExits.some(exit => exit.seatKey === seatKey)) return;
-  roomExits.push({ code, seatKey, matchId, countdownAt: reservation.countdownAt });
+  const { code, seatKey, exitToken, matchId, countdownAt } = reservation;
+  // Independent keys let concurrent tabs acknowledge their own exits without overwriting others.
+  if (isExitToken(exitToken)) writeStorage(exitPrefix + exitToken, JSON.stringify({ code, matchId, countdownAt }));
+  const existing = roomExits.find(exit => exit.seatKey === seatKey);
+  if (existing && isExitToken(exitToken)) existing.exitToken = exitToken;
+  if (!existing) roomExits.push({ code, seatKey, exitToken, matchId, countdownAt });
   saveSessionObject(ROOM_EXITS_KEY, roomExits);
 }
 
@@ -146,14 +174,26 @@ export function queueRoomExit(reservation, pendingRequest = null) {
   exitQueue = exitQueue.then(async () => {
     const lateReservation = await pendingRequest;
     if (lateReservation) rememberRoomExit(lateReservation);
-    if (!navigator.onLine || !roomExits.length) return;
-    const attempted = [...roomExits];
+    // Older tabs saved only a seat key. Upgrade their pending exits before waiting for the network.
+    for (const exit of roomExits) {
+      if (!isExitToken(exit.exitToken)) {
+        rememberRoomExit({ ...exit, exitToken: await exitTokenForSeat(exit.seatKey) });
+      }
+    }
+    if (!navigator.onLine) return;
+    const shared = sharedRoomExits();
+    const localTokens = new Set(roomExits.map(exit => exit.exitToken));
+    const attempted = [...roomExits, ...shared.filter(exit => !localTokens.has(exit.exitToken))];
+    if (!attempted.length) return;
     const results = await Promise.allSettled(attempted.map(leaveRoom));
     const released = new Set(attempted.filter((_, index) => results[index].status === "fulfilled"));
+    for (const exit of released) {
+      if (isExitToken(exit.exitToken)) writeStorage(exitPrefix + exit.exitToken, null);
+    }
     roomExits = roomExits.filter(exit => !released.has(exit));
     saveSessionObject(ROOM_EXITS_KEY, roomExits.length ? roomExits : null);
     clearTimeout(exitTimer);
-    if (roomExits.length) {
+    if (released.size < attempted.length) {
       exitTimer = setTimeout(() => queueRoomExit(), exitDelay);
       exitDelay = Math.min(exitDelay * 2, 15000);
     } else exitDelay = 1000;

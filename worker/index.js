@@ -5,6 +5,8 @@ import {
   INVITE_LIFETIME_MS,
   ROOM_CODE_DIGITS,
   VERSION,
+  digest,
+  isExitToken,
   isKey,
   isMatchId,
   normalizeCode,
@@ -34,12 +36,6 @@ function reply(body, status = 200, headers = {}) {
 
 function reject(code, headers) {
   return reply({ code }, statusByError[code] ?? 400, headers);
-}
-
-const encodeHex = bytes => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
-
-async function digest(namespace, key) {
-  return encodeHex(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(`${namespace}:${key}`))));
 }
 
 async function signRoomKey(secret, seatKey) {
@@ -140,11 +136,14 @@ export default {
     const body = await readJSON(request);
     if (path?.[2] === 'leave') {
       if (body?.version !== VERSION) return reject('version', cors);
-      if (!isKey(body.seatKey) || (body.matchId != null && !isMatchId(body.matchId)) ||
+      if ((!isKey(body.seatKey) && !isExitToken(body.exitToken)) || (body.matchId != null && !isMatchId(body.matchId)) ||
           (body.countdownAt != null && !Number.isSafeInteger(body.countdownAt))) return reject('invalid', cors);
       const response = await env.MATCH_ROOMS.getByName(code).fetch('https://room.internal/leave', {
         method: 'POST',
-        body: JSON.stringify({ hash: await digest('seat', body.seatKey), matchId: body.matchId, countdownAt: body.countdownAt }),
+        body: JSON.stringify({
+          hash: isKey(body.seatKey) ? await digest('seat', body.seatKey) : undefined,
+          exitToken: body.exitToken, matchId: body.matchId, countdownAt: body.countdownAt,
+        }),
       });
       return reply(await response.json(), response.status, cors);
     }
@@ -299,13 +298,22 @@ export class MatchRoom {
         return new Response(null, { status: 101, webSocket: client });
       });
     }
-    const { code, profile, hash, matchId, countdownAt } = await request.json();
+    const { code, profile, hash: seatHash, exitToken, matchId, countdownAt } = await request.json();
     const action = new URL(request.url).pathname.slice(1);
     return this.run(async () => {
       const now = Date.now();
       await this.maintain(now);
       if (action === 'leave') {
         const room = this.session;
+        let hash = seatHash;
+        if (!hash && isExitToken(exitToken)) {
+          for (const member of room.data.members) {
+            if (member && await digest('room-exit', member.hash) === exitToken) {
+              hash = member.hash;
+              break;
+            }
+          }
+        }
         const leavingSeat = room.seatFor(hash);
         let exitMatch = matchId;
         const active = ['playing', 'paused'].includes(room.phase);
@@ -337,7 +345,7 @@ export class MatchRoom {
       if (result.error) return reject(result.error);
       await this.commit();
       this.broadcastRoom();
-      return reply(result);
+      return reply({ ...result, exitToken: await digest('room-exit', profile.hash) });
     });
   }
 
@@ -378,6 +386,7 @@ export class MatchRoom {
       switch (message.type) {
         case 'ready':
           changed = this.session.setReady(seat, generation, message.ready, now, message.layout);
+          if (!changed && this.session.phase === 'waiting') this.send(ws, { type: 'error', code: 'conflict' });
           break;
         case 'leave': {
           const guestHash = this.session.data.members[1 - seat]?.hash;

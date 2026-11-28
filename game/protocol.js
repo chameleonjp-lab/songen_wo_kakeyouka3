@@ -29,6 +29,16 @@ export function normalizeCode(value) {
   return codePattern.test(legacy) ? legacy : null;
 }
 
+export async function digest(namespace, key) {
+  const bytes = new TextEncoder().encode(`${namespace}:${key}`);
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return Array.from(hash, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export function isExitToken(value) {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+}
+
 export function isKey(value) {
   return typeof value === 'string' && keyPattern.test(value);
 }
